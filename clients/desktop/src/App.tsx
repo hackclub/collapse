@@ -43,6 +43,9 @@ export function App() {
     },
     [tokenStore, navigate],
   );
+  // Ref so effects can call the latest version without depending on it
+  const handleDeepLinkRef = React.useRef(handleDeepLinkUrls);
+  handleDeepLinkRef.current = handleDeepLinkUrls;
 
   // Listen for deep links while app is running (warm start)
   useEffect(() => {
@@ -67,7 +70,7 @@ export function App() {
           console.debug(`[app] cold-start poll attempt ${i + 1}/10`);
           const urls = await invoke<string[]>("get_cold_start_urls");
           if (urls.length > 0) {
-            handleDeepLinkUrls(urls);
+            handleDeepLinkRef.current(urls);
             return;
           }
         } catch (e) {
@@ -79,7 +82,8 @@ export function App() {
     };
     check();
     return () => { cancelled = true; };
-  }, [handleDeepLinkUrls]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle ?token= query param (dev mode)
   useEffect(() => {
