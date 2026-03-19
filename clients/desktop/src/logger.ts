@@ -25,7 +25,7 @@ interface LogEntry {
 // Circular buffer
 // ---------------------------------------------------------------------------
 
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = 200;
 const entries: LogEntry[] = [];
 
 function push(level: LogEntry["level"], message: string) {
@@ -106,51 +106,73 @@ const LEVEL_COLORS: Record<LogEntry["level"], string> = {
   error: "#f44",
 };
 
-let renderScheduled = false;
+let renderTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleRender() {
-  if (renderScheduled) return;
-  renderScheduled = true;
-  requestAnimationFrame(render);
+  if (renderTimer !== null) return;
+  // Skip entirely when panel is hidden — no timer, no rAF, zero overhead
+  const el = document.getElementById("debug");
+  if (!el || el.style.display === "none") return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    render();
+  }, 250);
+}
+
+// Event delegation: one listener on #debug, never re-created.
+// This avoids leaking closures from addEventListener on nodes that
+// innerHTML will destroy on the next render cycle.
+let delegationReady = false;
+function ensureDelegation() {
+  if (delegationReady) return;
+  const el = document.getElementById("debug");
+  if (!el) return;
+  delegationReady = true;
+  el.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.id === "dbg-copy") {
+      navigator.clipboard.writeText(getReport()).then(
+        () => {
+          const btn = document.getElementById("dbg-copy");
+          if (btn) btn.textContent = "Copied!";
+          setTimeout(() => {
+            const btn = document.getElementById("dbg-copy");
+            if (btn) btn.textContent = "Copy Log";
+          }, 1500);
+        },
+        () => {},
+      );
+    }
+    if (target.id === "dbg-clear") {
+      entries.length = 0;
+      render();
+    }
+  });
 }
 
 function render() {
-  renderScheduled = false;
   const el = document.getElementById("debug");
   if (!el || el.style.display === "none") return;
+  ensureDelegation();
 
-  // Build HTML
-  let html =
-    '<div style="position:sticky;top:0;background:#111;padding:4px 8px;border-bottom:1px solid #333;display:flex;gap:8px;z-index:1;">' +
-    '<button id="dbg-copy" style="background:#333;color:#0f0;border:1px solid #555;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">Copy Log</button>' +
-    '<button id="dbg-clear" style="background:#333;color:#ff0;border:1px solid #555;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">Clear</button>' +
-    "</div>";
+  // Build HTML with array join (avoids O(n^2) string concatenation)
+  const parts: string[] = [
+    '<div style="position:sticky;top:0;background:#111;padding:4px 8px;border-bottom:1px solid #333;display:flex;gap:8px;z-index:1;">',
+    '<button id="dbg-copy" style="background:#333;color:#0f0;border:1px solid #555;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">Copy Log</button>',
+    '<button id="dbg-clear" style="background:#333;color:#ff0;border:1px solid #555;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;">Clear</button>',
+    "</div>",
+  ];
 
   for (const entry of entries) {
     const t = new Date(entry.time).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const color = LEVEL_COLORS[entry.level];
     const levelTag = entry.level.toUpperCase().padEnd(5);
-    // Escape HTML in message
     const safe = entry.message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    html += `<div style="color:${color};white-space:pre-wrap;word-break:break-all;">${t} ${levelTag} ${safe}</div>`;
+    parts.push(`<div style="color:${color};white-space:pre-wrap;word-break:break-all;">${t} ${levelTag} ${safe}</div>`);
   }
 
-  el.innerHTML = html;
-
-  // Auto-scroll to bottom
+  el.innerHTML = parts.join("");
   el.scrollTop = el.scrollHeight;
-
-  // Wire up buttons (re-attached each render since innerHTML replaces them)
-  document.getElementById("dbg-copy")?.addEventListener("click", () => {
-    navigator.clipboard.writeText(getReport()).then(
-      () => { document.getElementById("dbg-copy")!.textContent = "Copied!"; setTimeout(() => { const b = document.getElementById("dbg-copy"); if (b) b.textContent = "Copy Log"; }, 1500); },
-      () => {},
-    );
-  });
-  document.getElementById("dbg-clear")?.addEventListener("click", () => {
-    entries.length = 0;
-    render();
-  });
 }
 
 // ---------------------------------------------------------------------------
