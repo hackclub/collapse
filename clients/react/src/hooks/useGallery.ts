@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { SessionSummary } from "@collapse/shared";
 
 export interface UseGalleryOptions {
@@ -50,9 +50,8 @@ export function useGallery({ apiBaseUrl, tokens }: UseGalleryOptions): UseGaller
     })
       .then(async (res) => {
         if (!res.ok) {
-          // Don't crash on server errors — just show empty
-          console.warn(`Gallery batch fetch failed: HTTP ${res.status}`);
-          return { sessions: [] };
+          const text = await res.text().catch(() => "");
+          throw new Error(`HTTP ${res.status} ${res.statusText}\n${text.slice(0, 500)}`);
         }
         return res.json();
       })

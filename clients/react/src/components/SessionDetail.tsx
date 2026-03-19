@@ -22,7 +22,10 @@ export function SessionDetail({
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/sessions/${token}/status`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status} from /api/sessions/${token}/status\n${body.slice(0, 500)}`);
+      }
       const data: StatusResponse = await res.json();
       setStatus(data);
 

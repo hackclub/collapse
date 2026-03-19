@@ -39,7 +39,7 @@ export function Gallery({
           <h2 style={styles.heading}>Your Timelapses</h2>
         </div>
         <div style={styles.center}>
-          <p style={{ ...styles.text, color: "#fca5a5" }}>{error}</p>
+          <pre style={{ ...styles.text, color: "#fca5a5", whiteSpace: "pre-wrap", wordBreak: "break-all", fontFamily: "monospace", fontSize: 11, maxWidth: "100%", textAlign: "left" }}>{error}</pre>
           {onRefresh && (
             <button style={styles.retryBtn} onClick={onRefresh}>
               Retry

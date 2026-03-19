@@ -27,8 +27,17 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   }
   const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    const text = await res.text().catch(() => "");
+    let detail = "";
+    try {
+      const json = JSON.parse(text);
+      detail = json.error || json.message || text;
+    } catch {
+      detail = text;
+    }
+    throw new Error(
+      `HTTP ${res.status} ${res.statusText} from ${url}${detail ? "\n" + detail.slice(0, 500) : ""}`,
+    );
   }
   return res.json() as Promise<T>;
 }

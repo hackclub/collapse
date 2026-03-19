@@ -20,7 +20,7 @@ import {
 const tokenParamSchema = {
   type: "object" as const,
   properties: {
-    token: { type: "string" as const, pattern: "^[0-9a-f\\-]{36}$" },
+    token: { type: "string" as const, pattern: "^[0-9a-fA-F]{64}$" },
   },
   required: ["token"] as const,
 };

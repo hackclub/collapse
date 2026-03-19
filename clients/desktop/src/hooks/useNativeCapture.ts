@@ -80,7 +80,9 @@ export function useNativeCapture(
         // Preview is non-critical
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error
+        ? err.message + (err.stack ? "\n" + err.stack : "")
+        : String(err);
       setError(msg);
     }
   }, []);
