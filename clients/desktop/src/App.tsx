@@ -15,7 +15,8 @@ import { RecordPage } from "./components/RecordPage.js";
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
 export function App() {
-  const [permissionGranted, setPermissionGranted] = useState(false);
+  const isMacOS = navigator.platform.startsWith("Mac");
+  const [permissionGranted, setPermissionGranted] = useState(!isMacOS);
   const { route, navigate } = useHashRouter();
   const tokenStore = useTokenStore();
   const gallery = useGallery({

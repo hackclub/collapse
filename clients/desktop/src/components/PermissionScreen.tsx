@@ -11,12 +11,18 @@ export function PermissionScreen({ onGranted }: { onGranted: () => void }) {
   const [status, setStatus] = useState<PermissionStatus>("checking");
 
   const checkPermission = useCallback(async () => {
-    const granted = await checkScreenRecordingPermission();
-    if (granted) {
+    try {
+      const granted = await checkScreenRecordingPermission();
+      if (granted) {
+        setStatus("granted");
+        onGranted();
+      } else {
+        setStatus("denied");
+      }
+    } catch {
+      // Plugin unavailable (non-macOS) — assume permission granted
       setStatus("granted");
       onGranted();
-    } else {
-      setStatus("denied");
     }
   }, [onGranted]);
 
