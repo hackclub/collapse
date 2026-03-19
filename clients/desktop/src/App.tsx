@@ -48,13 +48,16 @@ export function App() {
   const handleDeepLinkRef = React.useRef(handleDeepLinkUrls);
   handleDeepLinkRef.current = handleDeepLinkUrls;
 
-  // Listen for deep links while app is running (warm start)
+  // Listen for deep links while app is running (warm start).
+  // Use the ref so this effect never re-subscribes — onOpenUrl creates a
+  // Tauri event listener and the async cleanup can race with re-subscription.
   useEffect(() => {
     const unlistenPlugin = onOpenUrl((urls) => {
-      handleDeepLinkUrls(urls);
+      handleDeepLinkRef.current(urls);
     });
     return () => { unlistenPlugin.then((fn) => fn()); };
-  }, [handleDeepLinkUrls]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Poll for cold-start deep link URLs exactly once. The Rust side stashes
   // URLs from both get_current() (immediate) and on_open_url (delayed Apple
