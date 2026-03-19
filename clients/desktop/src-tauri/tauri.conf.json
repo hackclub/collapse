@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicehash/tauri/refs/tags/tauri-v2.3.1/crates/tauri-utils/schema.json",
   "productName": "Collapse",
   "identifier": "com.hackclub.collapse",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src https://collapse.b.selfhosted.hackclub.com https://*.r2.cloudflarestorage.com http://localhost:* ipc: tauri:; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src 'self' blob: https://*.r2.cloudflarestorage.com; font-src 'self' data:"
     }
   },
   "bundle": {

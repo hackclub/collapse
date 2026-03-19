@@ -28,7 +28,7 @@ export async function internalRoutes(app: FastifyInstance) {
           type: "object" as const,
           properties: {
             name: { type: "string" as const, minLength: 1, maxLength: 255 },
-            metadata: { type: "object" as const },
+            metadata: { type: "object" as const, maxProperties: 50 },
           },
           additionalProperties: false,
         },
@@ -86,8 +86,10 @@ export async function internalRoutes(app: FastifyInstance) {
           ),
         );
 
+      // Exclude internal R2 storage keys from response
+      const { videoR2Key, thumbnailR2Key, ...sessionData } = session;
       return {
-        session,
+        session: sessionData,
         trackedSeconds: Math.max(0, (Number(count) - 1) * 60),
         screenshotCount: Number(count),
       };
@@ -133,7 +135,7 @@ export async function internalRoutes(app: FastifyInstance) {
         );
       }
 
-      await db
+      const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "stopped",
@@ -141,7 +143,15 @@ export async function internalRoutes(app: FastifyInstance) {
           totalActiveSeconds,
           updatedAt: new Date(),
         })
-        .where(eq(schema.sessions.id, sessionId));
+        .where(and(
+          eq(schema.sessions.id, sessionId),
+          sql`${schema.sessions.status} IN ('active', 'paused', 'pending')`,
+        ))
+        .returning({ id: schema.sessions.id });
+
+      if (!updated) {
+        return reply.code(409).send({ error: "Session state changed concurrently" });
+      }
 
       await boss.send(COMPILE_JOB, { sessionId });
 
@@ -174,10 +184,15 @@ export async function internalRoutes(app: FastifyInstance) {
           .send({ error: "Only failed sessions can be recompiled" });
       }
 
-      await db
+      const [updated] = await db
         .update(schema.sessions)
         .set({ status: "compiling", updatedAt: new Date() })
-        .where(eq(schema.sessions.id, sessionId));
+        .where(and(eq(schema.sessions.id, sessionId), eq(schema.sessions.status, "failed")))
+        .returning({ id: schema.sessions.id });
+
+      if (!updated) {
+        return reply.code(409).send({ error: "Session state changed concurrently" });
+      }
 
       await boss.send(COMPILE_JOB, { sessionId });
 

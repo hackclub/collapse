@@ -16,14 +16,21 @@ const app = Fastify({ logger: true });
 await app.register(cors, {
   origin: (origin, cb) => {
     // Allow: no origin (server-to-server), *.hackclub.com, localhost dev, tauri app
-    if (
-      !origin ||
-      /\.hackclub\.com$/.test(new URL(origin).hostname) ||
-      /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
-      origin.startsWith("tauri://")
-    ) {
+    if (!origin || origin.startsWith("tauri://")) {
       cb(null, true);
-    } else {
+      return;
+    }
+    try {
+      const hostname = new URL(origin).hostname;
+      if (
+        /\.hackclub\.com$/.test(hostname) ||
+        /^https?:\/\/localhost(:\d+)?$/.test(origin)
+      ) {
+        cb(null, true);
+      } else {
+        cb(new Error("Not allowed by CORS"), false);
+      }
+    } catch {
       cb(new Error("Not allowed by CORS"), false);
     }
   },

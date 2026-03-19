@@ -1,0 +1,13 @@
+.env
+.env.*
+.git
+.github
+.claude
+.vscode
+.idea
+node_modules
+clients/desktop/src-tauri/target
+docs
+*.md
+.DS_Store
+.dockerignore

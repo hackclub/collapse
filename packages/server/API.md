@@ -23,14 +23,17 @@ In-memory sliding window (60-second windows). Rate-limited responses return:
 - **Header:** `Retry-After: <seconds>`
 - **Body:** `{ "error": "Rate limit exceeded" }`
 
-| Endpoint | Limit |
-|----------|-------|
-| `GET /api/sessions/:token` | 60 req/min |
-| `GET /api/sessions/:token/upload-url` | 3 req/min (configurable) |
-| `POST /api/sessions/:token/screenshots` | 10 req/min |
-| `POST /api/sessions/:token/pause` | 10 req/min |
-| `POST /api/sessions/:token/resume` | 10 req/min |
-| `POST /api/sessions/:token/stop` | 10 req/min |
+| Endpoint | Limit | Key |
+|----------|-------|-----|
+| `GET /api/sessions/:token` | 60 req/min | per token |
+| `GET /api/sessions/:token/upload-url` | 3 req/min (configurable) | per session ID |
+| `POST /api/sessions/:token/screenshots` | 10 req/min | per token |
+| `POST /api/sessions/:token/pause` | 10 req/min | per token |
+| `POST /api/sessions/:token/resume` | 10 req/min | per token |
+| `POST /api/sessions/:token/stop` | 10 req/min | per token |
+| `GET /api/sessions/:token/video` | 30 req/min | per token |
+| `GET /api/sessions/:token/thumbnail` | 30 req/min | per token |
+| `POST /api/sessions/batch` | 30 req/min | per IP |
 
 ---
 
@@ -65,6 +68,8 @@ pending → active → paused → active → stopped → compiling → complete
 ```
 
 Valid states: `pending`, `active`, `paused`, `stopped`, `compiling`, `complete`, `failed`
+
+State transitions use optimistic locking — if a concurrent request changes the session state between read and update, the server returns `409 Conflict` with the message `"Session state changed concurrently, please retry"`.
 
 ---
 
@@ -323,6 +328,10 @@ Returns a presigned URL to download the compiled timelapse video.
 **Errors:**
 - `404` — Session not found, or video not yet available
 
+**Errors:**
+- `404` — Session not found, or video not yet available
+- `429` — Rate limit exceeded
+
 **Notes:**
 - Only available when session status is `complete`
 - Presigned URL expires after 1 hour
@@ -351,6 +360,7 @@ Returns a presigned URL for the session thumbnail.
 
 **Errors:**
 - `404` — Session not found, or thumbnail not available
+- `429` — Rate limit exceeded
 
 **Notes:**
 - Presigned URL expires after 1 hour
@@ -398,6 +408,7 @@ Fetch multiple sessions at once (for gallery views). Results sorted by creation 
 
 **Errors:**
 - `400` — Missing or invalid tokens array, or more than 100 tokens
+- `429` — Rate limit exceeded
 
 ---
 
@@ -422,7 +433,8 @@ Creates a new session in `pending` state.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `metadata` | object | no | Arbitrary JSON metadata to attach to the session |
+| `name` | string | no | Session name (1-255 chars) |
+| `metadata` | object | no | Arbitrary JSON metadata to attach to the session (max 50 properties) |
 
 **Response `201 Created`:**
 ```json
@@ -454,6 +466,7 @@ Returns full session details including internal fields.
   "session": {
     "id": "uuid",
     "token": "64-char hex",
+    "name": "...",
     "metadata": {},
     "status": "active",
     "startedAt": "...",
@@ -463,9 +476,7 @@ Returns full session details including internal fields.
     "resumedAt": "...",
     "totalActiveSeconds": 123,
     "videoUrl": null,
-    "videoR2Key": null,
     "thumbnailUrl": null,
-    "thumbnailR2Key": null,
     "createdAt": "...",
     "updatedAt": "..."
   },

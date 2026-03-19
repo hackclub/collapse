@@ -39,23 +39,35 @@ const r2Client = new S3Client({
 const R2_BUCKET = process.env.R2_BUCKET_NAME || "collapse";
 const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_DOMAIN || "";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function compileTimelapse(sessionId: string): Promise<{
   videoUrl: string;
   videoR2Key: string;
   thumbnailUrl: string;
   thumbnailR2Key: string;
 }> {
+  // Validate sessionId is a proper UUID to prevent path traversal
+  if (!UUID_RE.test(sessionId)) {
+    throw new Error(`Invalid sessionId format: ${sessionId}`);
+  }
+
   const session = await db.query.sessions.findFirst({
     where: eq(schema.sessions.id, sessionId),
   });
 
   if (!session) throw new Error(`Session ${sessionId} not found`);
 
-  // Update status to compiling
-  await db
+  // Atomically claim the compilation (concurrency guard)
+  const [claimed] = await db
     .update(schema.sessions)
     .set({ status: "compiling", updatedAt: new Date() })
-    .where(eq(schema.sessions.id, sessionId));
+    .where(and(eq(schema.sessions.id, sessionId), sql`${schema.sessions.status} != 'compiling'`))
+    .returning({ id: schema.sessions.id });
+
+  if (!claimed) {
+    throw new Error(`Session ${sessionId} is already being compiled`);
+  }
 
   const tmpDir = `/tmp/compile-${sessionId}`;
   await fs.mkdir(tmpDir, { recursive: true });

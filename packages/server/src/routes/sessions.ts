@@ -189,9 +189,9 @@ export async function sessionRoutes(app: FastifyInstance) {
 
       const now = new Date();
 
-      // If activating, set started_at
+      // If activating, set started_at (with optimistic locking)
       if (isActivating) {
-        await db
+        const [updated] = await db
           .update(schema.sessions)
           .set({
             status: "active",
@@ -199,7 +199,15 @@ export async function sessionRoutes(app: FastifyInstance) {
             lastScreenshotAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.sessions.id, session.id));
+          .where(and(eq(schema.sessions.id, session.id), eq(schema.sessions.status, "pending")))
+          .returning({ id: schema.sessions.id });
+        if (!updated) {
+          // Another request already activated; re-fetch and continue
+          const refreshed = await findSession(request.params.token);
+          if (!refreshed || (refreshed.status !== "active" && refreshed.status !== "pending")) {
+            return reply.code(409).send({ error: `Session is ${refreshed?.status ?? "unknown"}, cannot upload` });
+          }
+        }
       } else {
         await db
           .update(schema.sessions)
@@ -419,14 +427,14 @@ export async function sessionRoutes(app: FastifyInstance) {
           .send({ error: `Session is ${session.status}, cannot pause` });
       }
 
-      // Accumulate active time
+      // Accumulate active time (with optimistic locking)
       const activeFrom =
         session.resumedAt || session.startedAt!;
       const additionalSeconds = Math.floor(
         (Date.now() - activeFrom.getTime()) / 1000,
       );
 
-      await db
+      const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "paused",
@@ -434,7 +442,12 @@ export async function sessionRoutes(app: FastifyInstance) {
           totalActiveSeconds: session.totalActiveSeconds + additionalSeconds,
           updatedAt: new Date(),
         })
-        .where(eq(schema.sessions.id, session.id));
+        .where(and(eq(schema.sessions.id, session.id), eq(schema.sessions.status, "active")))
+        .returning({ id: schema.sessions.id });
+
+      if (!updated) {
+        return reply.code(409).send({ error: "Session state changed concurrently, please retry" });
+      }
 
       return {
         status: "paused" as const,
@@ -471,7 +484,7 @@ export async function sessionRoutes(app: FastifyInstance) {
 
       const now = new Date();
 
-      await db
+      const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "active",
@@ -479,7 +492,12 @@ export async function sessionRoutes(app: FastifyInstance) {
           resumedAt: now,
           updatedAt: now,
         })
-        .where(eq(schema.sessions.id, session.id));
+        .where(and(eq(schema.sessions.id, session.id), eq(schema.sessions.status, "paused")))
+        .returning({ id: schema.sessions.id });
+
+      if (!updated) {
+        return reply.code(409).send({ error: "Session state changed concurrently, please retry" });
+      }
 
       const nextExpectedAt = new Date(
         now.getTime() + SCREENSHOT_INTERVAL_MS,
@@ -531,7 +549,7 @@ export async function sessionRoutes(app: FastifyInstance) {
 
       const now = new Date();
 
-      await db
+      const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "stopped",
@@ -539,7 +557,15 @@ export async function sessionRoutes(app: FastifyInstance) {
           totalActiveSeconds,
           updatedAt: now,
         })
-        .where(eq(schema.sessions.id, session.id));
+        .where(and(
+          eq(schema.sessions.id, session.id),
+          sql`${schema.sessions.status} IN ('active', 'paused', 'pending')`,
+        ))
+        .returning({ id: schema.sessions.id });
+
+      if (!updated) {
+        return reply.code(409).send({ error: "Session state changed concurrently, please retry" });
+      }
 
       // Enqueue compilation
       const screenshotCount = await getScreenshotCount(session.id);
@@ -600,6 +626,16 @@ export async function sessionRoutes(app: FastifyInstance) {
       schema: { params: tokenParamSchema },
     },
     async (request, reply) => {
+      // Rate limit: 30 req/min per token
+      const rl = checkGenericRateLimit("session-video", request.params.token, 30);
+      if (!rl.allowed) {
+        reply.header(
+          "Retry-After",
+          String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)),
+        );
+        return reply.code(429).send({ error: "Rate limit exceeded" });
+      }
+
       const session = await findSession(request.params.token);
       if (!session) return reply.code(404).send({ error: "Session not found" });
 
@@ -627,6 +663,16 @@ export async function sessionRoutes(app: FastifyInstance) {
       schema: { params: tokenParamSchema },
     },
     async (request, reply) => {
+      // Rate limit: 30 req/min per token
+      const rl = checkGenericRateLimit("session-thumbnail", request.params.token, 30);
+      if (!rl.allowed) {
+        reply.header(
+          "Retry-After",
+          String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)),
+        );
+        return reply.code(429).send({ error: "Rate limit exceeded" });
+      }
+
       const session = await findSession(request.params.token);
       if (!session) return reply.code(404).send({ error: "Session not found" });
 
@@ -650,17 +696,38 @@ export async function sessionRoutes(app: FastifyInstance) {
   // Batch get sessions — gallery endpoint
   app.post<{ Body: { tokens: string[] } }>(
     "/api/sessions/batch",
+    {
+      schema: {
+        body: {
+          type: "object" as const,
+          required: ["tokens"] as const,
+          properties: {
+            tokens: {
+              type: "array" as const,
+              items: { type: "string" as const, pattern: "^[0-9a-fA-F]{64}$" },
+              minItems: 1,
+              maxItems: 100,
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
     async (request, reply) => {
+      // Rate limit: 30 req/min per IP
+      const ip = request.ip;
+      const rl = checkGenericRateLimit("batch", ip, 30);
+      if (!rl.allowed) {
+        reply.header(
+          "Retry-After",
+          String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)),
+        );
+        return reply.code(429).send({ error: "Rate limit exceeded" });
+      }
+
       const { tokens } = request.body;
 
-      if (!Array.isArray(tokens) || tokens.length === 0) {
-        return reply.code(400).send({ error: "tokens array is required" });
-      }
-      if (tokens.length > 100) {
-        return reply.code(400).send({ error: "Max 100 tokens per batch" });
-      }
-
-      // Validate all tokens are hex strings
+      // All tokens are already validated by schema
       const validTokens = tokens.filter((t) =>
         typeof t === "string" && /^[a-f0-9]{64}$/i.test(t),
       );
