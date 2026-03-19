@@ -107,7 +107,7 @@ jobs:
           args: ${{ matrix.args }}
 
       - name: Sign Windows binaries with Trusted Signing
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !contains(matrix.args, 'aarch64')
         uses: azure/trusted-signing-action@v0.5.1
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
