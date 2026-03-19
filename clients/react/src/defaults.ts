@@ -22,7 +22,7 @@ export function resolveConfig(config: CollapseConfig): ResolvedConfig {
     },
     retry: {
       maxRetries: config.retry?.maxRetries ?? MAX_UPLOAD_RETRIES,
-      retryDelays: config.retry?.retryDelays ?? [...UPLOAD_RETRY_DELAYS_MS],
+      retryDelays: config.retry?.retryDelays ?? UPLOAD_RETRY_DELAYS_MS,
       maxPendingBuffer: config.retry?.maxPendingBuffer ?? MAX_PENDING_BUFFER,
     },
     callbacks: config.callbacks ?? {},

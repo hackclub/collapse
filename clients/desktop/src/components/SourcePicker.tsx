@@ -1,5 +1,15 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Button,
+  ErrorDisplay,
+  Spinner,
+  colors,
+  spacing,
+  radii,
+  fontSize,
+  fontWeight,
+} from "@collapse/react";
 import type { CaptureSource } from "../hooks/useNativeCapture.js";
 import { useScreenPreview } from "../hooks/useScreenPreview.js";
 
@@ -69,18 +79,30 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
 
   if (error) {
     return (
-      <div style={styles.center}>
-        <h2 style={styles.heading}>Failed to detect displays</h2>
-        <p style={styles.errorText}>{error}</p>
-        <button style={styles.retryBtn} onClick={refresh}>Retry</button>
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", minHeight: 200, padding: spacing.xxl,
+      }}>
+        <ErrorDisplay
+          variant="page"
+          title="Failed to detect displays"
+          error={error}
+          action={{ label: "Retry", onClick: refresh }}
+        />
       </div>
     );
   }
 
   if (!sources) {
     return (
-      <div style={styles.center}>
-        <p style={styles.text}>Detecting displays...</p>
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", minHeight: 200, padding: spacing.xxl, gap: spacing.md,
+      }}>
+        <Spinner size="md" />
+        <p style={{ fontSize: fontSize.lg, color: colors.text.secondary, textAlign: "center" }}>
+          Detecting displays...
+        </p>
       </div>
     );
   }
@@ -88,16 +110,21 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
   const hasWindows = sources.windows.length > 0;
 
   return (
-    <div style={styles.container}>
-      <h2 style={styles.heading}>What should Collapse capture?</h2>
+    <div style={{ maxWidth: 480, margin: "0 auto", padding: spacing.lg }}>
+      <h2 style={{ fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.primary, marginBottom: spacing.md, textAlign: "center" }}>
+        What should Collapse capture?
+      </h2>
 
       {/* Live preview */}
-      <div style={styles.previewWrap}>
+      <div style={{
+        borderRadius: radii.lg, overflow: "hidden", background: colors.bg.sunken,
+        border: `1px solid ${colors.border.default}`, marginBottom: spacing.lg, aspectRatio: "16/9",
+      }}>
         {previewUrl ? (
-          <img src={previewUrl} alt="Preview" style={styles.previewImg} />
+          <img src={previewUrl} alt="Preview" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         ) : (
-          <div style={styles.previewPlaceholder}>
-            <p style={styles.previewPlaceholderText}>
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <p style={{ fontSize: fontSize.md, color: colors.text.quaternary, textAlign: "center" }}>
               {selected ? "Capturing preview..." : "Select a source below"}
             </p>
           </div>
@@ -106,27 +133,40 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
 
       {/* Tabs */}
       {hasWindows && (
-        <div style={styles.tabs}>
+        <div style={{
+          display: "flex", gap: spacing.xs, marginBottom: spacing.md, background: colors.bg.surface,
+          borderRadius: radii.md, padding: spacing.xs,
+        }}>
           <button
-            style={tab === "screens" ? styles.tabActive : styles.tab}
+            style={{
+              flex: 1, padding: `7px ${spacing.md}px`, fontSize: fontSize.sm, fontWeight: tab === "screens" ? fontWeight.semibold : fontWeight.medium,
+              background: tab === "screens" ? colors.border.default : "transparent",
+              color: tab === "screens" ? colors.text.primary : colors.text.secondary,
+              border: "none", borderRadius: radii.sm, cursor: "pointer",
+            }}
             onClick={() => setTab("screens")}
           >
             Screens ({sources.monitors.length})
           </button>
           <button
-            style={tab === "windows" ? styles.tabActive : styles.tab}
+            style={{
+              flex: 1, padding: `7px ${spacing.md}px`, fontSize: fontSize.sm, fontWeight: tab === "windows" ? fontWeight.semibold : fontWeight.medium,
+              background: tab === "windows" ? colors.border.default : "transparent",
+              color: tab === "windows" ? colors.text.primary : colors.text.secondary,
+              border: "none", borderRadius: radii.sm, cursor: "pointer",
+            }}
             onClick={() => setTab("windows")}
           >
             Windows ({sources.windows.length})
           </button>
-          <button style={styles.refreshBtn} onClick={refresh} title="Refresh">
+          <Button variant="ghost" size="sm" onClick={refresh} title="Refresh" style={{ padding: `7px ${spacing.md}px`, fontSize: fontSize.lg }}>
             &#x21bb;
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Source list */}
-      <div style={styles.list}>
+      <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, maxHeight: 280, overflowY: "auto" }}>
         {(tab === "screens" || !hasWindows) &&
           sources.monitors.map((m) => {
             const src: CaptureSource = { type: "monitor", id: m.id };
@@ -135,23 +175,34 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
               <button
                 key={`m-${m.id}`}
                 style={{
-                  ...styles.sourceItem,
-                  ...(isSelected ? styles.sourceItemSelected : {}),
+                  display: "flex", alignItems: "center", gap: spacing.md,
+                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? "rgba(59,130,246,0.08)" : colors.bg.surface,
+                  border: `1px solid ${isSelected ? colors.status.info : colors.border.default}`,
+                  borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
+                  width: "100%", transition: "border-color 0.15s",
                 }}
                 onClick={() => setSelected(src)}
               >
                 <div style={{
-                  ...styles.radio,
-                  ...(isSelected ? styles.radioSelected : {}),
+                  width: 18, height: 18, borderRadius: "50%",
+                  border: `2px solid ${isSelected ? colors.status.info : colors.text.quaternary}`,
+                  flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {isSelected && <div style={styles.radioDot} />}
+                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.status.info }} />}
                 </div>
-                <div style={styles.sourceInfo}>
-                  <span style={styles.sourceName}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: 2, minWidth: 0 }}>
+                  <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.text.primary, display: "flex", alignItems: "center", gap: spacing.sm }}>
                     {m.name}
-                    {m.isPrimary && <span style={styles.badge}>Primary</span>}
+                    {m.isPrimary && (
+                      <span style={{
+                        fontSize: fontSize.xs - 1, fontWeight: fontWeight.semibold, color: colors.status.success,
+                        background: `${colors.status.success}26`, padding: "1px 6px", borderRadius: radii.sm,
+                      }}>
+                        Primary
+                      </span>
+                    )}
                   </span>
-                  <span style={styles.sourceMeta}>
+                  <span style={{ fontSize: fontSize.xs, color: colors.text.tertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
                     {m.width}x{m.height}
                     {m.scaleFactor > 1 && ` @ ${m.scaleFactor}x`}
                   </span>
@@ -168,25 +219,36 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
               <button
                 key={`w-${w.id}`}
                 style={{
-                  ...styles.sourceItem,
-                  ...(isSelected ? styles.sourceItemSelected : {}),
+                  display: "flex", alignItems: "center", gap: spacing.md,
+                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? "rgba(59,130,246,0.08)" : colors.bg.surface,
+                  border: `1px solid ${isSelected ? colors.status.info : colors.border.default}`,
+                  borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
+                  width: "100%", transition: "border-color 0.15s",
                   ...(w.isMinimized ? { opacity: 0.5 } : {}),
                 }}
                 onClick={() => setSelected(src)}
               >
                 <div style={{
-                  ...styles.radio,
-                  ...(isSelected ? styles.radioSelected : {}),
+                  width: 18, height: 18, borderRadius: "50%",
+                  border: `2px solid ${isSelected ? colors.status.info : colors.text.quaternary}`,
+                  flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {isSelected && <div style={styles.radioDot} />}
+                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.status.info }} />}
                 </div>
-                <div style={styles.sourceInfo}>
-                  <span style={styles.sourceName}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: 2, minWidth: 0 }}>
+                  <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.text.primary, display: "flex", alignItems: "center", gap: spacing.sm }}>
                     {w.appName || w.title}
-                    {w.isMinimized && <span style={styles.badgeDim}>Minimized</span>}
+                    {w.isMinimized && (
+                      <span style={{
+                        fontSize: fontSize.xs - 1, fontWeight: fontWeight.medium, color: colors.text.secondary,
+                        background: `${colors.text.secondary}26`, padding: "1px 6px", borderRadius: radii.sm,
+                      }}>
+                        Minimized
+                      </span>
+                    )}
                   </span>
-                  <span style={styles.sourceMeta}>
-                    {w.title && w.appName ? w.title + " — " : ""}
+                  <span style={{ fontSize: fontSize.xs, color: colors.text.tertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                    {w.title && w.appName ? w.title + " \u2014 " : ""}
                     {w.width}x{w.height}
                   </span>
                 </div>
@@ -197,124 +259,10 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
 
       {/* Start button */}
       {selected && (
-        <button
-          style={styles.startBtn}
-          onClick={() => onSelect(selected)}
-        >
+        <Button variant="primary" size="lg" fullWidth onClick={() => onSelect(selected)} style={{ marginTop: spacing.lg }}>
           {submitLabel}
-        </button>
+        </Button>
       )}
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { maxWidth: 480, margin: "0 auto", padding: 16 },
-  center: {
-    display: "flex", flexDirection: "column", alignItems: "center",
-    justifyContent: "center", minHeight: 200, padding: 24,
-  },
-  heading: {
-    fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 12, textAlign: "center",
-  },
-  text: { fontSize: 14, color: "#888", textAlign: "center" },
-  errorText: { fontSize: 13, color: "#fca5a5", textAlign: "center", marginBottom: 12 },
-  retryBtn: {
-    padding: "8px 20px", fontSize: 13, fontWeight: 600,
-    background: "#3b82f6", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer",
-  },
-
-  // Preview
-  previewWrap: {
-    borderRadius: 10, overflow: "hidden", background: "#111",
-    border: "1px solid #333", marginBottom: 14, aspectRatio: "16/9",
-  },
-  previewImg: {
-    width: "100%", height: "100%", objectFit: "contain", display: "block",
-  },
-  previewPlaceholder: {
-    width: "100%", height: "100%", display: "flex",
-    alignItems: "center", justifyContent: "center",
-  },
-  previewPlaceholderText: { fontSize: 13, color: "#555", textAlign: "center" },
-
-  // Tabs
-  tabs: {
-    display: "flex", gap: 4, marginBottom: 10, background: "#1a1a1a",
-    borderRadius: 8, padding: 4,
-  },
-  tab: {
-    flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 500,
-    background: "transparent", color: "#888", border: "none",
-    borderRadius: 6, cursor: "pointer",
-  },
-  tabActive: {
-    flex: 1, padding: "7px 10px", fontSize: 12, fontWeight: 600,
-    background: "#333", color: "#fff", border: "none",
-    borderRadius: 6, cursor: "pointer",
-  },
-  refreshBtn: {
-    padding: "7px 10px", fontSize: 14, background: "transparent",
-    color: "#888", border: "none", cursor: "pointer", borderRadius: 6,
-  },
-
-  // Source list
-  list: {
-    display: "flex", flexDirection: "column", gap: 4,
-    maxHeight: 280, overflowY: "auto",
-  },
-  sourceItem: {
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "10px 12px", background: "#1a1a1a", border: "1px solid #333",
-    borderRadius: 8, cursor: "pointer", textAlign: "left" as const,
-    width: "100%", transition: "border-color 0.15s",
-  },
-  sourceItemSelected: {
-    borderColor: "#3b82f6",
-    background: "rgba(59,130,246,0.08)",
-  },
-
-  // Radio button
-  radio: {
-    width: 18, height: 18, borderRadius: "50%",
-    border: "2px solid #555", flexShrink: 0,
-    display: "flex", alignItems: "center", justifyContent: "center",
-  },
-  radioSelected: {
-    borderColor: "#3b82f6",
-  },
-  radioDot: {
-    width: 8, height: 8, borderRadius: "50%",
-    background: "#3b82f6",
-  },
-
-  sourceInfo: {
-    flex: 1, display: "flex", flexDirection: "column" as const, gap: 2,
-    minWidth: 0,
-  },
-  sourceName: {
-    fontSize: 13, fontWeight: 600, color: "#fff",
-    display: "flex", alignItems: "center", gap: 6,
-  },
-  sourceMeta: {
-    fontSize: 11, color: "#666", overflow: "hidden",
-    textOverflow: "ellipsis", whiteSpace: "nowrap" as const,
-  },
-  badge: {
-    fontSize: 10, fontWeight: 600, color: "#22c55e",
-    background: "rgba(34,197,94,0.15)", padding: "1px 6px",
-    borderRadius: 4,
-  },
-  badgeDim: {
-    fontSize: 10, fontWeight: 500, color: "#888",
-    background: "rgba(136,136,136,0.15)", padding: "1px 6px",
-    borderRadius: 4,
-  },
-
-  // Start button
-  startBtn: {
-    width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 600,
-    background: "#3b82f6", color: "#fff", border: "none", borderRadius: 10,
-    cursor: "pointer", marginTop: 14,
-  },
-};

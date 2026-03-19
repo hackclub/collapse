@@ -1,6 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
-import type { StatusResponse, VideoResponse } from "@collapse/shared";
-import { formatTime } from "../hooks/useSessionTimer.js";
+import { useState, useEffect, useCallback } from "react";
+import type { StatusResponse, VideoResponse, SessionResponse } from "@collapse/shared";
+import { formatTrackedTime } from "../hooks/useSessionTimer.js";
+import { Button } from "../ui/Button.js";
+import { ErrorDisplay } from "../ui/ErrorDisplay.js";
+import { ProcessingState } from "./ProcessingState.js";
+import { SessionDetailSkeleton } from "../ui/Skeleton.js";
+import { Card } from "../ui/Card.js";
+import { statusConfig, colors, spacing, fontSize, fontWeight } from "../ui/theme.js";
 
 export interface SessionDetailProps {
   token: string;
@@ -15,9 +21,25 @@ export function SessionDetail({
   onBack,
   onArchive,
 }: SessionDetailProps) {
+  const [sessionInfo, setSessionInfo] = useState<{ name: string; createdAt: string } | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch session info (name, createdAt) once
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/sessions/${token}`);
+        if (res.ok) {
+          const data: SessionResponse = await res.json();
+          setSessionInfo({ name: data.name, createdAt: data.createdAt });
+        }
+      } catch {
+        // Non-fatal — name display is optional
+      }
+    })();
+  }, [token, apiBaseUrl]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -58,206 +80,73 @@ export function SessionDetail({
   }, [status?.status, fetchStatus]);
 
   return (
-    <div style={styles.container}>
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: spacing.lg }}>
       {/* Header */}
-      <div style={styles.header}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
         {onBack && (
-          <button style={styles.backBtn} onClick={onBack}>
+          <Button variant="secondary" size="sm" onClick={onBack}>
             &larr; Back
-          </button>
+          </Button>
         )}
-        <div style={styles.headerRight}>
+        <div style={{ display: "flex", gap: spacing.sm }}>
           {onArchive && (
-            <button style={styles.archiveBtn} onClick={onArchive}>
+            <Button variant="secondary" size="sm" onClick={onArchive}>
               Archive
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
-      {error && (
-        <div style={styles.errorBanner}>
-          <strong style={{ display: "block", marginBottom: 4 }}>Error</strong>
-          <pre style={styles.errorDetail}>{error}</pre>
+      {/* Session name + date */}
+      {sessionInfo && (
+        <div style={{ marginBottom: spacing.lg }}>
+          <div style={{ fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.primary }}>
+            {sessionInfo.name}
+          </div>
+          <div style={{ fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: 2 }}>
+            {new Date(sessionInfo.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          </div>
         </div>
       )}
 
-      {!status && !error && (
-        <div style={styles.center}>
-          <p style={styles.text}>Loading session...</p>
-        </div>
+      {error && (
+        <ErrorDisplay error={error} variant="banner" title="Error" />
       )}
+
+      {!status && !error && <SessionDetailSkeleton />}
 
       {status && (
         <>
-          {/* Video player or status */}
-          <div style={styles.videoWrap}>
-            {videoUrl ? (
-              <video
-                src={videoUrl}
-                controls
-                style={styles.video}
-                autoPlay={false}
-              />
-            ) : (
-              <div style={styles.videoPlaceholder}>
-                {status.status === "complete" ? (
-                  <p style={styles.text}>No video available</p>
-                ) : (
-                  <>
-                    <div style={styles.spinner} />
-                    <p style={styles.text}>
-                      {status.status === "compiling"
-                        ? "Compiling timelapse..."
-                        : "Processing..."}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
+          {/* Video area */}
+          <div style={{ marginBottom: spacing.lg }}>
+            <ProcessingState
+              status={status.status}
+              trackedSeconds={status.trackedSeconds}
+              videoUrl={videoUrl}
+            />
           </div>
 
           {/* Stats */}
-          <div style={styles.stats}>
-            <div style={styles.stat}>
-              <span style={styles.statValue}>
-                {formatTime(status.trackedSeconds)}
+          <div style={{ display: "flex", gap: spacing.lg, justifyContent: "center" }}>
+            <Card padding={`${spacing.md}px ${spacing.xxl}px`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: spacing.xs }}>
+              <span style={{ fontSize: fontSize.xxl, fontWeight: fontWeight.bold, color: colors.text.primary }}>
+                {formatTrackedTime(status.trackedSeconds)}
               </span>
-              <span style={styles.statLabel}>Tracked time</span>
-            </div>
-            <div style={styles.stat}>
+              <span style={{ fontSize: fontSize.xs, color: colors.text.tertiary }}>Tracked time</span>
+            </Card>
+            <Card padding={`${spacing.md}px ${spacing.xxl}px`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: spacing.xs }}>
               <span style={{
-                ...styles.statValue,
-                color: statusColors[status.status] ?? "#888",
+                fontSize: fontSize.xxl,
+                fontWeight: fontWeight.bold,
+                color: (statusConfig[status.status] ?? { color: colors.text.secondary }).color,
               }}>
-                {statusLabels[status.status] ?? status.status}
+                {(statusConfig[status.status] ?? { label: status.status }).label}
               </span>
-              <span style={styles.statLabel}>Status</span>
-            </div>
+              <span style={{ fontSize: fontSize.xs, color: colors.text.tertiary }}>Status</span>
+            </Card>
           </div>
         </>
       )}
     </div>
   );
 }
-
-const statusLabels: Record<string, string> = {
-  pending: "Pending",
-  active: "Recording",
-  paused: "Paused",
-  stopped: "Processing",
-  compiling: "Compiling",
-  complete: "Complete",
-  failed: "Failed",
-};
-
-const statusColors: Record<string, string> = {
-  pending: "#888",
-  active: "#22c55e",
-  paused: "#f59e0b",
-  stopped: "#3b82f6",
-  compiling: "#3b82f6",
-  complete: "#22c55e",
-  failed: "#ef4444",
-};
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { maxWidth: 640, margin: "0 auto", padding: 16 },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  headerRight: { display: "flex", gap: 8 },
-  backBtn: {
-    padding: "6px 12px",
-    fontSize: 13,
-    fontWeight: 500,
-    background: "transparent",
-    color: "#888",
-    border: "1px solid #444",
-    borderRadius: 6,
-    cursor: "pointer",
-  },
-  archiveBtn: {
-    padding: "6px 12px",
-    fontSize: 12,
-    fontWeight: 500,
-    background: "transparent",
-    color: "#888",
-    border: "1px solid #444",
-    borderRadius: 6,
-    cursor: "pointer",
-  },
-  center: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 200,
-  },
-  text: { fontSize: 14, color: "#888", textAlign: "center" },
-  errorBanner: {
-    padding: "10px 14px",
-    marginBottom: 12,
-    background: "rgba(239,68,68,0.15)",
-    border: "1px solid #ef4444",
-    borderRadius: 8,
-    color: "#fca5a5",
-    fontSize: 13,
-  },
-  errorDetail: {
-    margin: 0,
-    fontSize: 11,
-    fontFamily: "monospace",
-    whiteSpace: "pre-wrap" as const,
-    wordBreak: "break-all" as const,
-    maxHeight: 120,
-    overflowY: "auto" as const,
-    color: "#fca5a5",
-  },
-  videoWrap: {
-    borderRadius: 10,
-    overflow: "hidden",
-    background: "#111",
-    marginBottom: 16,
-    aspectRatio: "16/9",
-  },
-  video: { width: "100%", height: "100%", display: "block" },
-  videoPlaceholder: {
-    width: "100%",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  spinner: {
-    width: 24,
-    height: 24,
-    borderRadius: "50%",
-    border: "3px solid #333",
-    borderTopColor: "#3b82f6",
-    animation: "spin 1s linear infinite",
-  },
-  stats: {
-    display: "flex",
-    gap: 16,
-    justifyContent: "center",
-  },
-  stat: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 2,
-    padding: "12px 24px",
-    background: "#1a1a1a",
-    border: "1px solid #333",
-    borderRadius: 8,
-    flex: 1,
-  },
-  statValue: { fontSize: 18, fontWeight: 700, color: "#fff" },
-  statLabel: { fontSize: 11, color: "#666" },
-};

@@ -3,7 +3,11 @@ import { useCollapse } from "../hooks/useCollapse.js";
 import { StatusBar } from "./StatusBar.js";
 import { ScreenPreview } from "./ScreenPreview.js";
 import { RecordingControls } from "./RecordingControls.js";
-import { ResultView } from "./ResultView.js";
+import { ProcessingState } from "./ProcessingState.js";
+import { Spinner } from "../ui/Spinner.js";
+import { ErrorDisplay } from "../ui/ErrorDisplay.js";
+import { PageContainer } from "../ui/PageContainer.js";
+import { colors, fontSize, fontWeight, spacing } from "../ui/theme.js";
 
 /**
  * Drop-in recorder widget. Handles the full lifecycle:
@@ -16,34 +20,35 @@ export function CollapseRecorder() {
 
   if (state.status === "loading") {
     return (
-      <div style={styles.center}>
-        <p style={styles.text}>Loading session...</p>
-      </div>
+      <PageContainer centered>
+        <Spinner size="lg" />
+      </PageContainer>
     );
   }
 
   if (state.status === "no-token") {
     return (
-      <div style={styles.center}>
-        <h2 style={styles.heading}>No session token</h2>
-        <p style={styles.text}>
+      <PageContainer centered>
+        <h2 style={{ fontSize: fontSize.display, fontWeight: fontWeight.bold, color: colors.text.primary, marginBottom: spacing.sm }}>
+          No session token
+        </h2>
+        <p style={{ fontSize: fontSize.xl, color: colors.text.secondary, textAlign: "center", maxWidth: 400 }}>
           This page requires a session token. You should have been redirected
           here from another service.
         </p>
-      </div>
+      </PageContainer>
     );
   }
 
   if (state.status === "error") {
     return (
-      <div style={styles.center}>
-        <h2 style={{ ...styles.heading, color: "#ef4444" }}>Error</h2>
-        <p style={styles.text}>{state.error}</p>
-      </div>
+      <PageContainer centered>
+        <ErrorDisplay error={state.error ?? "Unknown error"} variant="page" />
+      </PageContainer>
     );
   }
 
-  // Terminal states: show result view
+  // Terminal states: show processing state inline
   if (
     state.status === "stopped" ||
     state.status === "compiling" ||
@@ -51,16 +56,18 @@ export function CollapseRecorder() {
     state.status === "failed"
   ) {
     return (
-      <ResultView
-        status={state.status}
-        trackedSeconds={state.trackedSeconds}
-      />
+      <PageContainer maxWidth={800} style={{ padding: spacing.xxl }}>
+        <ProcessingState
+          status={state.status}
+          trackedSeconds={state.trackedSeconds}
+        />
+      </PageContainer>
     );
   }
 
   // Recording states: pending, active, paused
   return (
-    <div style={styles.container}>
+    <PageContainer maxWidth={800} style={{ padding: spacing.xxl }}>
       <StatusBar
         displaySeconds={state.displaySeconds}
         screenshotCount={state.screenshotCount}
@@ -75,20 +82,6 @@ export function CollapseRecorder() {
         onResume={actions.resume}
         onStop={actions.stop}
       />
-    </div>
+    </PageContainer>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { maxWidth: 800, margin: "40px auto", padding: 24 },
-  center: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "100vh",
-    padding: 24,
-  },
-  heading: { fontSize: 24, fontWeight: 700, color: "#fff", marginBottom: 8 },
-  text: { fontSize: 16, color: "#888", textAlign: "center", maxWidth: 400 },
-};

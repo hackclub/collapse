@@ -4,9 +4,11 @@ import type { RecorderStatus } from "../types.js";
 
 interface SessionState {
   status: RecorderStatus;
+  name: string;
   trackedSeconds: number;
   screenshotCount: number;
   startedAt: string | null;
+  createdAt: string | null;
   totalActiveSeconds: number;
   error: string | null;
 }
@@ -17,9 +19,11 @@ export function useSession() {
 
   const [state, setState] = useState<SessionState>({
     status: "loading",
+    name: "",
     trackedSeconds: 0,
     screenshotCount: 0,
     startedAt: null,
+    createdAt: null,
     totalActiveSeconds: 0,
     error: null,
   });
@@ -43,9 +47,11 @@ export function useSession() {
       const data = await client.getSession();
       setState({
         status: data.status,
+        name: data.name,
         trackedSeconds: data.trackedSeconds,
         screenshotCount: data.screenshotCount,
         startedAt: data.startedAt,
+        createdAt: data.createdAt,
         totalActiveSeconds: data.totalActiveSeconds,
         error: null,
       });
@@ -96,7 +102,15 @@ export function useSession() {
     setState((s) => ({ ...s, status: data.status }));
   }, [client]);
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (name?: string) => {
+    // Optionally name the timelapse before stopping (non-fatal if it fails)
+    if (name) {
+      try {
+        await client.rename(name);
+      } catch {
+        // Non-fatal — server defaults to "untitled-YYYY-MM-DD"
+      }
+    }
     const data = await client.stop();
     setState((s) => ({
       ...s,

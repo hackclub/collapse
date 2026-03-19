@@ -1,0 +1,679 @@
+# @collapse/react — React SDK Documentation
+
+**Package:** `@collapse/react` v0.1.0
+**Peer Dependencies:** React 18+ or 19+
+**Exports:** ESM + CJS with TypeScript declarations
+
+---
+
+## Quick Start
+
+```tsx
+import { CollapseProvider, CollapseRecorder } from "@collapse/react";
+
+function App() {
+  return (
+    <CollapseProvider token="your-64-char-hex-token" apiBaseUrl="https://api.example.com">
+      <CollapseRecorder />
+    </CollapseProvider>
+  );
+}
+```
+
+For headless usage:
+
+```tsx
+import { CollapseProvider, useCollapse } from "@collapse/react";
+
+function MyRecorder() {
+  const { state, actions } = useCollapse();
+
+  return (
+    <div>
+      <p>Status: {state.status}</p>
+      <p>Time: {state.displaySeconds}s</p>
+      <button onClick={actions.startSharing}>Start</button>
+      <button onClick={actions.pause}>Pause</button>
+      <button onClick={() => actions.stop({ name: "My timelapse" })}>Stop</button>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <CollapseProvider token="..." apiBaseUrl="https://api.example.com">
+      <MyRecorder />
+    </CollapseProvider>
+  );
+}
+```
+
+---
+
+## Provider
+
+### `<CollapseProvider>`
+
+Context provider that configures the API client and settings for all child hooks/components.
+
+```tsx
+<CollapseProvider
+  token="..."
+  apiBaseUrl="https://api.example.com"
+  capture={{ intervalMs: 30000, jpegQuality: 0.9 }}
+  autoStart
+>
+  {children}
+</CollapseProvider>
+```
+
+**Props** (`CollapseProviderProps` extends `CollapseConfig`):
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `token` | `TokenProvider` | *required* | Session token — string, sync getter, or async getter |
+| `apiBaseUrl` | `string` | `""` (same origin) | Server API base URL |
+| `capture` | `CaptureSettings` | See below | Screenshot capture settings |
+| `retry` | `RetrySettings` | See below | Upload retry/buffer settings |
+| `callbacks` | `CollapseCallbacks` | `{}` | Lifecycle event callbacks |
+| `statusPollIntervalMs` | `number` | `3000` | Compilation status poll interval (ms) |
+| `autoStart` | `boolean` | `false` | Auto-start screen sharing on mount |
+| `children` | `ReactNode` | *required* | Child components |
+
+#### `TokenProvider`
+
+```ts
+type TokenProvider =
+  | string                     // static token
+  | (() => string)             // sync getter
+  | (() => Promise<string>);   // async getter (e.g. fetch from your backend)
+```
+
+#### `CaptureSettings`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `intervalMs` | `number` | `60000` | Screenshot interval in ms |
+| `jpegQuality` | `number` | `0.85` | JPEG quality (0–1) |
+| `maxWidth` | `number` | `1920` | Max capture width in px |
+| `maxHeight` | `number` | `1080` | Max capture height in px |
+| `displayMediaConstraints` | `DisplayMediaStreamOptions` | — | Override `getDisplayMedia` constraints |
+
+#### `RetrySettings`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxRetries` | `number` | `3` | Max retries per upload step |
+| `retryDelays` | `number[]` | `[2000, 4000, 8000]` | Backoff delays per attempt (ms) |
+| `maxPendingBuffer` | `number` | `5` | Max screenshots buffered in memory |
+
+---
+
+## Hooks
+
+### `useCollapse()`
+
+Primary hook — composes all lower-level hooks and orchestrates the capture-upload loop. Must be used within `<CollapseProvider>`.
+
+```ts
+const { state, actions } = useCollapse();
+```
+
+**Returns:**
+
+#### `state: CollapseState`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `RecorderStatus` | Current status (see below) |
+| `isSharing` | `boolean` | Whether `getDisplayMedia` is active |
+| `trackedSeconds` | `number` | Server-confirmed tracked time |
+| `displaySeconds` | `number` | Client-interpolated display time (smooth ticking) |
+| `screenshotCount` | `number` | Number of confirmed screenshots |
+| `uploads` | `UploadState` | Upload queue: `{ pending, completed, failed }` |
+| `lastScreenshotUrl` | `string \| null` | Object URL of last captured screenshot |
+| `videoUrl` | `string \| null` | Video URL when complete |
+| `error` | `string \| null` | Error message when status is `"error"` |
+
+#### `actions: CollapseActions`
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `startSharing` | `() => Promise<void>` | Prompt user for screen sharing, begin capturing |
+| `stopSharing` | `() => void` | Stop screen share without stopping session (auto-pauses) |
+| `pause` | `() => Promise<void>` | Pause the session |
+| `resume` | `() => Promise<void>` | Resume a paused session |
+| `stop` | `(options?: { name?: string }) => Promise<void>` | Stop the session and trigger compilation. Optionally name the timelapse before stopping. |
+
+#### `RecorderStatus`
+
+Server states plus client-only states:
+
+```ts
+type RecorderStatus =
+  | "pending"    // session created, not yet started
+  | "active"     // recording in progress
+  | "paused"     // paused by user or auto-pause
+  | "stopped"    // stopped, waiting for compilation
+  | "compiling"  // video being compiled
+  | "complete"   // video ready
+  | "failed"     // compilation failed
+  | "loading"    // (client-only) initial session fetch
+  | "no-token"   // (client-only) no token provided/resolved
+  | "error";     // (client-only) error state
+```
+
+---
+
+### `useScreenCapture(overrides?)`
+
+Handles `getDisplayMedia`, canvas snapshots, and stream lifecycle. Can be used standalone (without provider) by passing explicit settings.
+
+```ts
+const { isSharing, startSharing, takeScreenshot, stopSharing } = useScreenCapture();
+```
+
+**Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `overrides` | `CaptureSettings` | Optional overrides (merged with provider config) |
+
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `isSharing` | `boolean` | Whether screen sharing is active |
+| `startSharing` | `() => Promise<void>` | Prompt user for screen sharing |
+| `takeScreenshot` | `() => Promise<CaptureResult \| null>` | Capture current frame as JPEG blob |
+| `stopSharing` | `() => void` | Stop all media tracks |
+
+#### `CaptureResult`
+
+```ts
+interface CaptureResult {
+  blob: Blob;     // JPEG image blob
+  width: number;  // Pixel width
+  height: number; // Pixel height
+}
+```
+
+---
+
+### `useUploader()`
+
+Manages the upload queue with retries and backoff. Must be used within `<CollapseProvider>`.
+
+```ts
+const { enqueue, uploads, trackedSeconds, lastScreenshotUrl, nextExpectedAt, lastError } = useUploader();
+```
+
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enqueue` | `(capture: CaptureResult) => void` | Add a capture to the upload queue |
+| `uploads` | `UploadState` | `{ pending, completed, failed }` counts |
+| `trackedSeconds` | `number` | Server-reported tracked time after last confirmation |
+| `lastScreenshotUrl` | `string \| null` | Object URL of last uploaded screenshot |
+| `nextExpectedAt` | `string \| null` | ISO timestamp of when server expects next screenshot |
+| `lastError` | `string \| null` | Last upload error message |
+
+---
+
+### `useSession()`
+
+Manages session state, status polling, and server interactions. Must be used within `<CollapseProvider>`.
+
+```ts
+const session = useSession();
+```
+
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `RecorderStatus` | Current session status |
+| `name` | `string` | Timelapse name |
+| `trackedSeconds` | `number` | Server-tracked seconds |
+| `screenshotCount` | `number` | Confirmed screenshot count |
+| `startedAt` | `string \| null` | Session start timestamp |
+| `createdAt` | `string \| null` | Session creation timestamp |
+| `totalActiveSeconds` | `number` | Accumulated active time |
+| `error` | `string \| null` | Error message |
+| `pause` | `() => Promise<void>` | Pause the session |
+| `resume` | `() => Promise<void>` | Resume the session |
+| `stop` | `(name?: string) => Promise<void>` | Stop the session. Optionally name the timelapse before stopping (non-fatal if rename fails). |
+| `reload` | `() => Promise<void>` | Re-fetch session from server |
+| `updateTrackedSeconds` | `(seconds: number) => void` | Update tracked seconds locally |
+| `setError` | `(error: string \| null) => void` | Set error state |
+
+---
+
+### `useSessionTimer(serverTrackedSeconds, isActive)`
+
+Client-side interpolated timer. Uses server-provided seconds as ground truth, interpolates between updates for smooth display.
+
+```ts
+const displaySeconds = useSessionTimer(trackedSeconds, isActive);
+```
+
+**Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `serverTrackedSeconds` | `number` | Ground truth from server |
+| `isActive` | `boolean` | Whether to tick the timer |
+
+**Returns:** `number` — interpolated display seconds
+
+---
+
+### `useTokenStore()`
+
+Manages session tokens in `localStorage` with cross-tab sync. No provider required.
+
+```ts
+const store = useTokenStore();
+```
+
+**Returns (`UseTokenStore`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tokens` | `TokenEntry[]` | Active (non-archived) tokens |
+| `archivedTokens` | `TokenEntry[]` | Archived tokens |
+| `addToken` | `(token: string, label?: string) => void` | Add a token |
+| `archiveToken` | `(token: string) => void` | Archive a token |
+| `unarchiveToken` | `(token: string) => void` | Unarchive a token |
+| `removeToken` | `(token: string) => void` | Permanently remove a token |
+| `getAllTokenValues` | `() => string[]` | Get all active token strings |
+| `hasToken` | `(token: string) => boolean` | Check if a token exists |
+
+#### `TokenEntry`
+
+```ts
+interface TokenEntry {
+  token: string;
+  addedAt: string;    // ISO timestamp
+  label?: string;
+  archived: boolean;
+}
+```
+
+**Storage key:** `collapse-tokens`
+
+---
+
+### `useGallery(options)`
+
+Fetches multiple sessions for gallery display via the batch endpoint. Auto-refreshes on tab focus. No provider required.
+
+```ts
+const { sessions, loading, error, refresh } = useGallery({
+  apiBaseUrl: "https://api.example.com",
+  tokens: ["token1", "token2"],
+});
+```
+
+**Parameters (`UseGalleryOptions`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `apiBaseUrl` | `string` | Server API base URL |
+| `tokens` | `string[]` | Token strings to fetch |
+
+**Returns (`UseGallery`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sessions` | `SessionSummary[]` | Fetched sessions (newest first) |
+| `loading` | `boolean` | Whether fetch is in progress |
+| `error` | `string \| null` | Fetch error message |
+| `refresh` | `() => void` | Manually re-fetch |
+
+---
+
+### `useHashRouter()`
+
+Simple hash-based router for single-page app navigation. No provider required.
+
+```ts
+const { route, navigate } = useHashRouter();
+```
+
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `route` | `Route` | Current route |
+| `navigate` | `(route: Route) => void` | Navigate to a route |
+
+#### `Route`
+
+```ts
+type Route =
+  | { page: "gallery" }                   // #/
+  | { page: "record"; token: string }     // #/record?token=...
+  | { page: "session"; token: string };   // #/session?token=...
+```
+
+---
+
+## Components
+
+### `<CollapseRecorder>`
+
+Drop-in recorder widget. Handles the full lifecycle: screen sharing, capture, upload, pause/resume/stop, compilation polling, and video display. Must be used within `<CollapseProvider>`.
+
+```tsx
+<CollapseRecorder />
+```
+
+No props — reads everything from context.
+
+**Renders based on status:**
+- `loading` — spinner
+- `no-token` — "no session token" message
+- `error` — error display
+- `stopped` / `compiling` / `complete` / `failed` — `<ProcessingState>`
+- `pending` / `active` / `paused` — `<StatusBar>` + `<ScreenPreview>` + `<RecordingControls>`
+
+---
+
+### `<StatusBar>`
+
+Displays timer, screenshot count, and upload queue status.
+
+```tsx
+<StatusBar displaySeconds={120} screenshotCount={5} uploads={{ pending: 1, completed: 4, failed: 0 }} />
+```
+
+**Props (`StatusBarProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `displaySeconds` | `number` | Seconds to display (formatted as H:MM:SS) |
+| `screenshotCount` | `number` | Confirmed screenshot count |
+| `uploads` | `UploadState` | `{ pending, completed, failed }` |
+
+---
+
+### `<RecordingControls>`
+
+Action buttons for start/pause/resume/stop, adapts to current state.
+
+```tsx
+<RecordingControls
+  status="active"
+  isSharing={true}
+  onStartSharing={() => {}}
+  onPause={() => {}}
+  onResume={() => {}}
+  onStop={() => {}}
+/>
+```
+
+**Props (`RecordingControlsProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `status` | `RecorderStatus` | Current session status |
+| `isSharing` | `boolean` | Whether screen sharing is active |
+| `onStartSharing` | `() => void` | Start screen sharing callback |
+| `onPause` | `() => void` | Pause callback |
+| `onResume` | `() => void` | Resume callback |
+| `onStop` | `() => void` | Stop callback |
+| `loading` | `boolean?` | Show loading state on buttons |
+
+---
+
+### `<ScreenPreview>`
+
+Displays the last captured screenshot. Renders nothing if no image.
+
+```tsx
+<ScreenPreview imageUrl={lastScreenshotUrl} />
+```
+
+**Props (`ScreenPreviewProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `imageUrl` | `string \| null` | Object URL of the screenshot |
+
+---
+
+### `<ProcessingState>`
+
+Displays compilation progress, video player, or failure state.
+
+```tsx
+<ProcessingState status="compiling" trackedSeconds={300} />
+<ProcessingState status="complete" trackedSeconds={300} videoUrl="https://..." />
+```
+
+**Props (`ProcessingStateProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `status` | `string` | Session status |
+| `trackedSeconds` | `number` | Tracked time to display |
+| `videoUrl` | `string?` | Video URL (shown when complete) |
+| `error` | `string?` | Error message |
+| `onVideoLoaded` | `() => void?` | Callback when video element loads |
+
+---
+
+### `<ResultView>`
+
+Wraps `<ProcessingState>` with automatic video URL fetching from the API. Must be used within `<CollapseProvider>`.
+
+```tsx
+<ResultView status="complete" trackedSeconds={300} />
+```
+
+**Props (`ResultViewProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `status` | `RecorderStatus` | Session status |
+| `trackedSeconds` | `number` | Tracked time |
+
+---
+
+### `<Gallery>`
+
+Grid of session cards with loading, empty, and error states.
+
+```tsx
+<Gallery
+  sessions={sessions}
+  loading={false}
+  error={null}
+  onSessionClick={(token) => navigate({ page: "session", token })}
+  onArchive={(token) => store.archiveToken(token)}
+  onRefresh={refresh}
+/>
+```
+
+**Props (`GalleryProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `sessions` | `SessionSummary[]` | Sessions to display |
+| `loading` | `boolean` | Show skeleton loader |
+| `error` | `string \| null` | Error message |
+| `onSessionClick` | `(token: string) => void?` | Card click handler |
+| `onArchive` | `(token: string) => void?` | Archive button handler |
+| `onRefresh` | `() => void?` | Refresh button handler |
+
+---
+
+### `<SessionCard>`
+
+Individual session card with thumbnail, status badge, timelapse name, tracked time, and recording date.
+
+```tsx
+<SessionCard session={session} onClick={() => {}} onArchive={() => {}} />
+```
+
+**Props (`SessionCardProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `session` | `SessionSummary` | Session data |
+| `onClick` | `() => void?` | Click handler |
+| `onArchive` | `() => void?` | Archive button handler |
+
+---
+
+### `<SessionDetail>`
+
+Full session detail view with video player, stats, and compilation polling. Standalone (no provider needed).
+
+```tsx
+<SessionDetail
+  token="..."
+  apiBaseUrl="https://api.example.com"
+  onBack={() => navigate({ page: "gallery" })}
+  onArchive={() => store.archiveToken(token)}
+/>
+```
+
+**Props (`SessionDetailProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `token` | `string` | Session token |
+| `apiBaseUrl` | `string` | Server API base URL |
+| `onBack` | `() => void?` | Back button handler |
+| `onArchive` | `() => void?` | Archive button handler |
+
+---
+
+## Callbacks
+
+Pass via `CollapseProvider`'s `callbacks` prop:
+
+```tsx
+<CollapseProvider
+  token="..."
+  callbacks={{
+    onShareStart: () => console.log("sharing started"),
+    onCapture: (capture) => console.log("captured", capture.width, "x", capture.height),
+    onUploadSuccess: ({ screenshotId, trackedSeconds }) => {},
+    onUploadFailure: (error) => {},
+    onPause: ({ totalActiveSeconds }) => {},
+    onResume: () => {},
+    onStop: ({ trackedSeconds, totalActiveSeconds }) => {},
+    onComplete: ({ videoUrl }) => {},
+    onCompilationFailed: () => {},
+    onError: (error, context) => {},
+    onStatusChange: (prev, next) => {},
+  }}
+>
+```
+
+| Callback | Arguments | When |
+|----------|-----------|------|
+| `onShareStart` | — | Screen sharing started |
+| `onShareStop` | — | Screen sharing ended |
+| `onCapture` | `CaptureResult` | Screenshot captured (before upload) |
+| `onUploadSuccess` | `{ screenshotId, trackedSeconds }` | Screenshot uploaded and confirmed |
+| `onUploadFailure` | `Error` | Upload failed after all retries |
+| `onPause` | `{ totalActiveSeconds }` | Session paused |
+| `onResume` | — | Session resumed |
+| `onStop` | `{ trackedSeconds, totalActiveSeconds }` | Session stopped |
+| `onComplete` | `{ videoUrl }` | Compilation complete, video ready |
+| `onCompilationFailed` | — | Compilation failed |
+| `onError` | `(Error, context: string)` | Any non-fatal error |
+| `onStatusChange` | `(prev, next)` | Status transition |
+
+---
+
+## API Client
+
+### `createCollapseClient(options)`
+
+Standalone API client with no React dependency. Useful for server-side or non-React contexts.
+
+```ts
+import { createCollapseClient } from "@collapse/react";
+
+const client = createCollapseClient({
+  baseUrl: "https://api.example.com",
+  token: "your-token",
+});
+
+const session = await client.getSession();
+```
+
+**Options (`CreateClientOptions`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `baseUrl` | `string` | Server API base URL |
+| `token` | `TokenProvider` | Session token (string, sync, or async getter) |
+
+**Returns (`CollapseClient`):**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `resolveToken` | `() => Promise<string>` | Resolve the token value |
+| `getSession` | `() => Promise<SessionResponse>` | Fetch session status |
+| `getUploadUrl` | `() => Promise<UploadUrlResponse>` | Get presigned upload URL |
+| `confirmScreenshot` | `(body) => Promise<ConfirmScreenshotResponse>` | Confirm upload |
+| `uploadToR2` | `(uploadUrl, blob) => Promise<void>` | PUT blob to presigned URL |
+| `pause` | `() => Promise<PauseResponse>` | Pause session |
+| `resume` | `() => Promise<ResumeResponse>` | Resume session |
+| `stop` | `() => Promise<StopResponse>` | Stop session |
+| `rename` | `(name: string) => Promise<RenameSessionResponse>` | Rename the timelapse |
+| `getStatus` | `() => Promise<StatusResponse>` | Poll compilation status |
+| `getVideo` | `() => Promise<VideoResponse>` | Get video URL |
+
+---
+
+## UI Primitives
+
+The SDK exports styled UI primitives used by its components. All use inline styles (no CSS imports needed).
+
+| Export | Description |
+|--------|-------------|
+| `Button` | Styled button with variants: `primary`, `secondary`, `success`, `warning`, `danger`, `ghost` and sizes: `sm`, `md`, `lg` |
+| `Spinner` | Loading spinner with sizes: `sm`, `md`, `lg` |
+| `Badge` | Status badge with variants: `default`, `overlay` |
+| `Card` | Styled card container |
+| `ErrorDisplay` | Error message display with variants: `inline`, `banner`, `page` |
+| `PageContainer` | Page layout wrapper |
+| `Skeleton` / `GallerySkeleton` / `SessionDetailSkeleton` / `RecordPageSkeleton` | Loading skeletons |
+| `colors` / `spacing` / `radii` / `fontSize` / `fontWeight` / `statusConfig` | Theme tokens |
+
+---
+
+## Utilities
+
+### `formatTime(totalSeconds)`
+
+Formats seconds as `H:MM:SS` or `M:SS`. Used for the live timer display.
+
+```ts
+import { formatTime } from "@collapse/react";
+
+formatTime(0);     // "0:00"
+formatTime(65);    // "1:05"
+formatTime(3661);  // "1:01:01"
+```
+
+### `formatTrackedTime(totalSeconds)`
+
+Formats seconds as human-readable tracked time. Used for static time displays (gallery cards, stats) where second-level precision is unnecessary.
+
+```ts
+import { formatTrackedTime } from "@collapse/react";
+
+formatTrackedTime(0);      // "< 1min"
+formatTrackedTime(300);    // "5min"
+formatTrackedTime(5640);   // "1h 34min"
+formatTrackedTime(7200);   // "2h"
+```

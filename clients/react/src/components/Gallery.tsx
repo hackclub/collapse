@@ -1,6 +1,10 @@
 import React from "react";
 import type { SessionSummary } from "@collapse/shared";
 import { SessionCard } from "./SessionCard.js";
+import { Button } from "../ui/Button.js";
+import { ErrorDisplay } from "../ui/ErrorDisplay.js";
+import { GallerySkeleton } from "../ui/Skeleton.js";
+import { colors, spacing, fontSize, fontWeight } from "../ui/theme.js";
 
 export interface GalleryProps {
   sessions: SessionSummary[];
@@ -20,30 +24,21 @@ export function Gallery({
   onRefresh,
 }: GalleryProps) {
   if (loading && sessions.length === 0) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <h2 style={styles.heading}>Your Timelapses</h2>
-        </div>
-        <div style={styles.center}>
-          <p style={styles.text}>Loading...</p>
-        </div>
-      </div>
-    );
+    return <GallerySkeleton />;
   }
 
   if (error && sessions.length === 0) {
     return (
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <h2 style={styles.heading}>Your Timelapses</h2>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: spacing.lg }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
+          <h2 style={{ fontSize: fontSize.heading, fontWeight: fontWeight.bold, color: colors.text.primary, margin: 0 }}>Your Timelapses</h2>
         </div>
-        <div style={styles.center}>
-          <pre style={{ ...styles.text, color: "#fca5a5", whiteSpace: "pre-wrap", wordBreak: "break-all", fontFamily: "monospace", fontSize: 11, maxWidth: "100%", textAlign: "left" }}>{error}</pre>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, padding: spacing.xxl }}>
+          <ErrorDisplay error={error} variant="inline" />
           {onRefresh && (
-            <button style={styles.retryBtn} onClick={onRefresh}>
+            <Button variant="primary" size="md" onClick={onRefresh} style={{ marginTop: spacing.md }}>
               Retry
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -52,20 +47,20 @@ export function Gallery({
 
   if (sessions.length === 0) {
     return (
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <h2 style={styles.heading}>Your Timelapses</h2>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: spacing.lg }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
+          <h2 style={{ fontSize: fontSize.heading, fontWeight: fontWeight.bold, color: colors.text.primary, margin: 0 }}>Your Timelapses</h2>
         </div>
-        <div style={styles.center}>
-          <p style={styles.emptyIcon}>
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="1.5">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, padding: spacing.xxl }}>
+          <p style={{ marginBottom: spacing.md }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={colors.border.hover} strokeWidth="1.5">
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
               <line x1="8" y1="21" x2="16" y2="21" />
               <line x1="12" y1="17" x2="12" y2="21" />
             </svg>
           </p>
-          <p style={styles.text}>No timelapses yet</p>
-          <p style={{ ...styles.text, fontSize: 12, color: "#555", marginTop: 4 }}>
+          <p style={{ fontSize: fontSize.lg, color: colors.text.secondary, textAlign: "center" }}>No timelapses yet</p>
+          <p style={{ fontSize: fontSize.sm, color: colors.text.quaternary, marginTop: spacing.xs, textAlign: "center" }}>
             Start a recording session to see it here.
           </p>
         </div>
@@ -74,16 +69,16 @@ export function Gallery({
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h2 style={styles.heading}>Your Timelapses</h2>
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: spacing.lg }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
+        <h2 style={{ fontSize: fontSize.heading, fontWeight: fontWeight.bold, color: colors.text.primary, margin: 0 }}>Your Timelapses</h2>
         {onRefresh && (
-          <button style={styles.refreshBtn} onClick={onRefresh} title="Refresh">
+          <Button variant="ghost" size="sm" onClick={onRefresh} title="Refresh" style={{ fontSize: fontSize.xxl }}>
             &#x21bb;
-          </button>
+          </Button>
         )}
       </div>
-      <div style={styles.grid}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: spacing.md }}>
         {sessions.map((s) => (
           <SessionCard
             key={s.token}
@@ -96,49 +91,3 @@ export function Gallery({
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { maxWidth: 640, margin: "0 auto", padding: 16 },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  heading: { fontSize: 20, fontWeight: 700, color: "#fff", margin: 0 },
-  refreshBtn: {
-    padding: "6px 10px",
-    fontSize: 18,
-    background: "transparent",
-    color: "#888",
-    border: "1px solid #444",
-    borderRadius: 6,
-    cursor: "pointer",
-  },
-  center: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 300,
-    padding: 24,
-  },
-  text: { fontSize: 14, color: "#888", textAlign: "center" },
-  emptyIcon: { marginBottom: 12 },
-  retryBtn: {
-    marginTop: 12,
-    padding: "8px 20px",
-    fontSize: 13,
-    fontWeight: 600,
-    background: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(240, 1fr))",
-    gap: 12,
-  },
-};

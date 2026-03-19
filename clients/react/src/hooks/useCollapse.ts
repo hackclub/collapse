@@ -24,7 +24,7 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
   );
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const hasStartedRef = useRef(false);
+  const capturingRef = useRef(false);
   const prevStatusRef = useRef<RecorderStatus>(session.status);
 
   // Sync tracked seconds from uploader to session
@@ -47,40 +47,42 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     }
   }, [session.status]);
 
-  // Capture and enqueue upload
-  const captureAndUpload = useCallback(async () => {
+  // Capture callback stored in a ref so the interval always calls the latest
+  // version without needing to clear/recreate the interval on every render.
+  const captureAndUploadRef = useRef(async () => {
     const result = await capture.takeScreenshot();
     if (result) {
       callbacksRef.current.onCapture?.(result);
       uploader.enqueue(result);
     }
-  }, [capture.takeScreenshot, uploader.enqueue]);
+  });
+  captureAndUploadRef.current = async () => {
+    const result = await capture.takeScreenshot();
+    if (result) {
+      callbacksRef.current.onCapture?.(result);
+      uploader.enqueue(result);
+    }
+  };
 
-  // Start/stop capture interval based on sharing + session state
+  // Start/stop capture interval based on sharing + session state.
+  // Uses a ref for the callback so the interval survives re-renders
+  // without being cleared (fixes React StrictMode + parent re-render issues).
   const isActive = session.status === "active" || session.status === "pending";
 
   useEffect(() => {
-    if (capture.isSharing && isActive && !hasStartedRef.current) {
-      hasStartedRef.current = true;
-      captureAndUpload();
-      intervalRef.current = setInterval(captureAndUpload, config.capture.intervalMs);
-    }
+    if (!capture.isSharing || !isActive) return;
 
-    if (!capture.isSharing || !isActive) {
-      hasStartedRef.current = false;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    }
+    capturingRef.current = true;
+    captureAndUploadRef.current();
+    const id = setInterval(() => captureAndUploadRef.current(), config.capture.intervalMs);
+    intervalRef.current = id;
 
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      capturingRef.current = false;
+      clearInterval(id);
+      intervalRef.current = null;
     };
-  }, [capture.isSharing, isActive, captureAndUpload, config.capture.intervalMs]);
+  }, [capture.isSharing, isActive, config.capture.intervalMs]);
 
   // Auto-resume when screen sharing starts while session is paused
   // (e.g., user clicked "Share Screen & Resume" after a reload)
@@ -94,8 +96,8 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
 
   // Auto-pause when screen sharing ends unexpectedly
   useEffect(() => {
-    if (!capture.isSharing && session.status === "active" && hasStartedRef.current) {
-      hasStartedRef.current = false;
+    if (!capture.isSharing && session.status === "active" && capturingRef.current) {
+      capturingRef.current = false;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -148,7 +150,7 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    hasStartedRef.current = false;
+    capturingRef.current = false;
     await session.pause();
     callbacksRef.current.onPause?.({ totalActiveSeconds: session.totalActiveSeconds });
   }, [session.pause, session.totalActiveSeconds]);
@@ -158,14 +160,14 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     callbacksRef.current.onResume?.();
   }, [session.resume]);
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (options?: { name?: string }) => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    hasStartedRef.current = false;
+    capturingRef.current = false;
     capture.stopSharing();
-    await session.stop();
+    await session.stop(options?.name);
     callbacksRef.current.onStop?.({
       trackedSeconds: session.trackedSeconds,
       totalActiveSeconds: session.totalActiveSeconds,

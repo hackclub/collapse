@@ -14,6 +14,8 @@ export { ScreenPreview } from "./components/ScreenPreview.js";
 export type { ScreenPreviewProps } from "./components/ScreenPreview.js";
 export { ResultView } from "./components/ResultView.js";
 export type { ResultViewProps } from "./components/ResultView.js";
+export { ProcessingState } from "./components/ProcessingState.js";
+export type { ProcessingStateProps } from "./components/ProcessingState.js";
 
 // Gallery components
 export { Gallery } from "./components/Gallery.js";
@@ -28,7 +30,7 @@ export { useCollapse } from "./hooks/useCollapse.js";
 export { useScreenCapture } from "./hooks/useScreenCapture.js";
 export { useUploader } from "./hooks/useUploader.js";
 export { useSession } from "./hooks/useSession.js";
-export { useSessionTimer, formatTime } from "./hooks/useSessionTimer.js";
+export { useSessionTimer, formatTime, formatTrackedTime } from "./hooks/useSessionTimer.js";
 
 // Gallery hooks
 export { useTokenStore } from "./hooks/useTokenStore.js";
@@ -60,3 +62,6 @@ export type {
 // Re-export shared types consumers need
 export type { SessionStatus, SessionSummary } from "@collapse/shared";
 export { SESSION_STATUSES } from "@collapse/shared";
+
+// UI primitives
+export * from "./ui/index.js";

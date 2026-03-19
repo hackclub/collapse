@@ -1,6 +1,7 @@
 import React from "react";
 import { formatTime } from "../hooks/useSessionTimer.js";
 import type { UploadState } from "../types.js";
+import { colors, spacing, fontSize, fontWeight, radii } from "../ui/theme.js";
 
 export interface StatusBarProps {
   displaySeconds: number;
@@ -10,38 +11,32 @@ export interface StatusBarProps {
 
 export function StatusBar({ displaySeconds, screenshotCount, uploads }: StatusBarProps) {
   return (
-    <div style={styles.bar}>
-      <div style={styles.time}>{formatTime(displaySeconds)}</div>
-      <div style={styles.stats}>
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: `${spacing.md}px ${spacing.xl}px`,
+      background: colors.bg.surface,
+      borderRadius: radii.md,
+      marginBottom: spacing.lg,
+    }}>
+      <div style={{
+        fontSize: fontSize.timer,
+        fontWeight: fontWeight.bold,
+        fontVariantNumeric: "tabular-nums",
+        color: colors.text.primary,
+      }}>
+        {formatTime(displaySeconds)}
+      </div>
+      <div style={{ display: "flex", gap: spacing.lg, fontSize: fontSize.lg, color: colors.text.secondary }}>
         <span>{screenshotCount + uploads.completed} screenshots</span>
         {uploads.pending > 0 && (
-          <span style={styles.pending}>{uploads.pending} uploading...</span>
+          <span style={{ color: colors.status.warning }}>{uploads.pending} uploading...</span>
         )}
         {uploads.failed > 0 && (
-          <span style={styles.failed}>{uploads.failed} failed</span>
+          <span style={{ color: colors.status.danger }}>{uploads.failed} failed</span>
         )}
       </div>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  bar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 20px",
-    background: "#1a1a1a",
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  time: {
-    fontSize: 32,
-    fontWeight: 700,
-    fontVariantNumeric: "tabular-nums",
-    color: "#fff",
-  },
-  stats: { display: "flex", gap: 16, fontSize: 14, color: "#888" },
-  pending: { color: "#f59e0b" },
-  failed: { color: "#ef4444" },
-};

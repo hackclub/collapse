@@ -161,6 +161,6 @@ export interface CollapseActions {
   pause: () => Promise<void>;
   /** Resume a paused session. */
   resume: () => Promise<void>;
-  /** Stop the session (triggers compilation). */
-  stop: () => Promise<void>;
+  /** Stop the session (triggers compilation). Optionally name the timelapse before stopping. */
+  stop: (options?: { name?: string }) => Promise<void>;
 }

@@ -6,6 +6,7 @@ import type {
   PauseResponse,
   ResumeResponse,
   StopResponse,
+  RenameSessionResponse,
   StatusResponse,
   VideoResponse,
 } from "@collapse/shared";
@@ -20,6 +21,7 @@ export interface CollapseClient {
   pause(): Promise<PauseResponse>;
   resume(): Promise<ResumeResponse>;
   stop(): Promise<StopResponse>;
+  rename(name: string): Promise<RenameSessionResponse>;
   getStatus(): Promise<StatusResponse>;
   getVideo(): Promise<VideoResponse>;
 }
@@ -135,6 +137,13 @@ export function createCollapseClient(options: CreateClientOptions): CollapseClie
     async stop() {
       return fetchJson<StopResponse>(await sessionUrl("/stop"), {
         method: "POST",
+      });
+    },
+
+    async rename(name: string) {
+      return fetchJson<RenameSessionResponse>(await sessionUrl("/name"), {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
       });
     },
 

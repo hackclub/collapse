@@ -1,5 +1,7 @@
 import React from "react";
 import type { RecorderStatus } from "../types.js";
+import { Button } from "../ui/Button.js";
+import { colors, spacing, fontSize, fontWeight } from "../ui/theme.js";
 
 export interface RecordingControlsProps {
   status: RecorderStatus;
@@ -8,6 +10,7 @@ export interface RecordingControlsProps {
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
+  loading?: boolean;
 }
 
 export function RecordingControls({
@@ -17,104 +20,61 @@ export function RecordingControls({
   onPause,
   onResume,
   onStop,
+  loading,
 }: RecordingControlsProps) {
   const isActive = status === "active" || status === "pending";
   const isPaused = status === "paused";
 
   return (
-    <div style={styles.controls}>
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: spacing.md,
+      justifyContent: "center",
+      flexWrap: "wrap",
+    }}>
       {!isSharing && isActive && (
-        <button style={styles.startBtn} onClick={onStartSharing}>
-          Share Screen & Start Recording
-        </button>
+        <Button variant="success" size="lg" onClick={onStartSharing} loading={loading}>
+          Share Screen &amp; Start Recording
+        </Button>
       )}
 
       {!isSharing && isPaused && (
         <>
-          <button style={styles.resumeBtn} onClick={onStartSharing}>
-            Share Screen & Resume
-          </button>
-          <button style={styles.stopBtn} onClick={onStop}>
+          <Button variant="primary" size="lg" onClick={onStartSharing} loading={loading}>
+            Share Screen &amp; Resume
+          </Button>
+          <Button variant="danger" size="md" onClick={onStop}>
             Stop Session
-          </button>
+          </Button>
         </>
       )}
 
       {isSharing && isActive && (
         <>
-          <div style={styles.recordingDot} />
-          <span style={styles.recordingText}>Recording</span>
-          <button style={styles.pauseBtn} onClick={onPause}>
+          <div style={{
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            background: colors.status.danger,
+            animation: "pulse 1.5s ease-in-out infinite",
+          }} />
+          <span style={{
+            fontSize: fontSize.lg,
+            fontWeight: fontWeight.semibold,
+            color: colors.status.danger,
+            marginRight: spacing.sm,
+          }}>
+            Recording
+          </span>
+          <Button variant="warning" size="md" onClick={onPause}>
             Pause
-          </button>
-          <button style={styles.stopBtn} onClick={onStop}>
+          </Button>
+          <Button variant="danger" size="md" onClick={onStop}>
             Stop
-          </button>
+          </Button>
         </>
       )}
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  controls: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    justifyContent: "center",
-    flexWrap: "wrap",
-  },
-  startBtn: {
-    padding: "14px 28px",
-    fontSize: 16,
-    fontWeight: 600,
-    background: "#22c55e",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  pauseBtn: {
-    padding: "10px 20px",
-    fontSize: 14,
-    fontWeight: 600,
-    background: "#f59e0b",
-    color: "#000",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  resumeBtn: {
-    padding: "14px 28px",
-    fontSize: 16,
-    fontWeight: 600,
-    background: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  stopBtn: {
-    padding: "10px 20px",
-    fontSize: 14,
-    fontWeight: 600,
-    background: "#ef4444",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  recordingDot: {
-    width: 12,
-    height: 12,
-    borderRadius: "50%",
-    background: "#ef4444",
-    animation: "pulse 1.5s ease-in-out infinite",
-  },
-  recordingText: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: "#ef4444",
-    marginRight: 8,
-  },
-};

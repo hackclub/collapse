@@ -52,6 +52,7 @@ export function CollapseProvider({
     style.textContent = [
       "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}",
       "@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}",
+      "@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
     ].join("");
     document.head.appendChild(style);
   }, []);
