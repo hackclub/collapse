@@ -28,6 +28,10 @@ jobs:
             args: ""
             rust_targets: ""
             os_label: linux
+          - platform: ubuntu-24.04-arm
+            args: ""
+            rust_targets: ""
+            os_label: linux
           # Windows
           - platform: windows-latest
             args: ""
@@ -57,6 +61,7 @@ jobs:
             libxcb-randr0-dev \
             libxcb-shm0-dev \
             libpipewire-0.3-dev \
+            libgbm-dev \
             xdg-utils
 
       - name: Setup Node.js
@@ -112,12 +117,17 @@ jobs:
             exit 0
           fi
 
+          # Map OS label to file extensions this job produces
+          case "$OS_LABEL" in
+            macos)   EXTS="dmg" ;;
+            linux)   EXTS="deb AppImage" ;;
+            windows) EXTS="exe msi" ;;
+          esac
+
           gh api "repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" --jq '.[] | "\(.id) \(.name)"' | while read -r ASSET_ID ASSET_NAME; do
-            # Only rename assets that don't already have an OS label
-            if [[ "$ASSET_NAME" != *"${OS_LABEL}-"* ]]; then
-              # Tauri names: Collapse_0.0.1_aarch64.dmg or Collapse_0.0.1_x64-setup.exe
-              # Insert OS before arch: Collapse_0.0.1_macos-aarch64.dmg
-              # Match: everything up to last underscore = prefix, rest = arch+ext
+            EXT="${ASSET_NAME##*.}"
+            # Only rename assets matching this platform's extensions
+            if [[ " $EXTS " == *" $EXT "* ]] && [[ "$ASSET_NAME" != *"${OS_LABEL}-"* ]]; then
               PREFIX="${ASSET_NAME%_*}"
               SUFFIX="${ASSET_NAME##*_}"
               NEW_NAME="${PREFIX}_${OS_LABEL}-${SUFFIX}"
