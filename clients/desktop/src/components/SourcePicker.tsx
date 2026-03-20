@@ -181,8 +181,8 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                 key={`m-${m.id}`}
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.md,
-                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? "rgba(255,255,255,0.08)" : colors.bg.surface,
-                  border: `1px solid ${isSelected ? "rgba(255,255,255,0.3)" : colors.border.default}`,
+                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? colors.bg.selected : colors.bg.surface,
+                  border: `1px solid ${isSelected ? colors.border.selected : colors.border.default}`,
                   borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
                   width: "100%", transition: "border-color 0.15s",
                 }}
@@ -190,10 +190,10 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
               >
                 <div style={{
                   width: 18, height: 18, borderRadius: "50%",
-                  border: `2px solid ${isSelected ? "rgba(255,255,255,0.8)" : colors.text.quaternary}`,
+                  border: `2px solid ${isSelected ? colors.icon.selected : colors.text.quaternary}`,
                   flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)" }} />}
+                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.icon.selected }} />}
                 </div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: 2, minWidth: 0 }}>
                   <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.text.primary, display: "flex", alignItems: "center", gap: spacing.sm }}>
@@ -225,8 +225,8 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                 key={`w-${w.id}`}
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.md,
-                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? "rgba(255,255,255,0.08)" : colors.bg.surface,
-                  border: `1px solid ${isSelected ? "rgba(255,255,255,0.3)" : colors.border.default}`,
+                  padding: `${spacing.md}px ${spacing.md}px`, background: isSelected ? colors.bg.selected : colors.bg.surface,
+                  border: `1px solid ${isSelected ? colors.border.selected : colors.border.default}`,
                   borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
                   width: "100%", transition: "border-color 0.15s",
                   ...(w.isMinimized ? { opacity: 0.5 } : {}),
@@ -235,10 +235,10 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
               >
                 <div style={{
                   width: 18, height: 18, borderRadius: "50%",
-                  border: `2px solid ${isSelected ? "rgba(255,255,255,0.8)" : colors.text.quaternary}`,
+                  border: `2px solid ${isSelected ? colors.icon.selected : colors.text.quaternary}`,
                   flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)" }} />}
+                  {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.icon.selected }} />}
                 </div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: 2, minWidth: 0 }}>
                   <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.text.primary, display: "flex", alignItems: "center", gap: spacing.sm }}>

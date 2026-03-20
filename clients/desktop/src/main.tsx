@@ -62,7 +62,7 @@ class ErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 24, fontFamily: "monospace", background: "transparent", color: "#e5e5e5", minHeight: "100vh" }}>
+        <div style={{ padding: 24, fontFamily: "monospace", background: "transparent", color: "var(--color-text-primary, #e5e5e5)", minHeight: "100vh" }}>
           <div style={{ maxWidth: 500, margin: "0 auto", border: "1px solid #f44", borderRadius: 8, padding: 20 }}>
             <h2 style={{ color: "#f44", margin: "0 0 12px 0", fontSize: 18 }}>Something went wrong</h2>
             <pre style={{ color: "#faa", fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 300, overflowY: "auto", marginBottom: 16 }}>

@@ -8,7 +8,7 @@ export interface BadgeProps {
 }
 
 export function Badge({ status, variant = "overlay", size = "sm" }: BadgeProps) {
-  const config = statusConfig[status] ?? { label: status, color: "rgba(255, 255, 255, 0.5)" };
+  const config = statusConfig[status] ?? { label: status, color: "var(--color-status-neutral)" };
   const isOverlay = variant === "overlay";
   
   const sizeStyles = {
@@ -21,9 +21,9 @@ export function Badge({ status, variant = "overlay", size = "sm" }: BadgeProps) 
     <span style={{
       ...sizeStyles[size],
       fontWeight: fontWeight.semibold,
-      color: "#fff",
+      color: "#fff", // Keeping text white since background is usually a colorful status pill
       borderRadius: 999,
-      background: config.color.startsWith("#") ? config.color : "rgba(255, 255, 255, 0.2)",
+      background: config.color.startsWith("#") ? config.color : "var(--color-bg-surface)",
       ...(isOverlay ? { boxShadow: `0 0 0 1px rgba(0,0,0,0.1)` } : {}),
     }}>
       {config.label}
