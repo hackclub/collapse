@@ -32,4 +32,4 @@ Collapse is designed to be simple, resilient, and easy to integrate. Here's how 
 
 Sessions auto-pause after 5 minutes of inactivity and auto-stop after 30 minutes of being paused.
 
-There is no concept of "users" or "accounts" in Collapse. Sessions are created to be shared to users and viewable by Hack Club programs.
+There is no concept of "users" or "accounts" in Collapse. Sessions are created to be shared to users and controlled by the Hack Club program that created them.
