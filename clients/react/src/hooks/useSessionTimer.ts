@@ -14,9 +14,14 @@ export function useSessionTimer(
 ): number {
   const [displaySeconds, setDisplaySeconds] = useState(serverTrackedSeconds);
   const lastSyncRef = useRef(Date.now());
+  // Base value the RAF tick counts from. Ratchets up so display never jumps backward.
+  const baseRef = useRef(serverTrackedSeconds);
 
   useEffect(() => {
-    setDisplaySeconds(serverTrackedSeconds);
+    // Accept the server value as the new base, but never lower the base
+    // below what the display was already showing (prevents backward snap).
+    baseRef.current = Math.max(baseRef.current, serverTrackedSeconds);
+    setDisplaySeconds(baseRef.current);
     lastSyncRef.current = Date.now();
   }, [serverTrackedSeconds]);
 
@@ -28,7 +33,7 @@ export function useSessionTimer(
       const elapsed = Math.floor((Date.now() - lastSyncRef.current) / 1000);
       if (elapsed !== lastRenderedSecond) {
         lastRenderedSecond = elapsed;
-        setDisplaySeconds(serverTrackedSeconds + elapsed);
+        setDisplaySeconds(baseRef.current + elapsed);
       }
       raf = requestAnimationFrame(tick);
     };

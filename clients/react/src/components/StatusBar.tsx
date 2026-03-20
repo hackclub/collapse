@@ -29,7 +29,7 @@ export function StatusBar({ displaySeconds, screenshotCount, uploads }: StatusBa
         {formatTime(displaySeconds)}
       </div>
       <div style={{ display: "flex", gap: spacing.lg, fontSize: fontSize.lg, color: colors.text.secondary }}>
-        <span>{screenshotCount + uploads.completed} {screenshotCount + uploads.completed === 1 ? "screenshot" : "screenshots"}</span>
+        <span>{screenshotCount} {screenshotCount === 1 ? "screenshot" : "screenshots"}</span>
         {uploads.pending > 0 && (
           <span style={{ color: colors.status.warning }}>{uploads.pending} uploading...</span>
         )}

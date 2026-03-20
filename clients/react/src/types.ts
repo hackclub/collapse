@@ -134,9 +134,11 @@ export interface CollapseState {
   status: RecorderStatus;
   /** Whether getDisplayMedia is active. */
   isSharing: boolean;
-  /** Server-tracked seconds (confirmed buckets × 60). */
+  /** True when actively capturing (sharing + pending/active). Convenience for UI logic. */
+  isRecording: boolean;
+  /** Best-known tracked seconds (max of server, upload confirms, and local estimate). */
   trackedSeconds: number;
-  /** Client-interpolated display seconds (smooth ticking). */
+  /** Client-interpolated display seconds (smooth ticking, monotonic). */
   displaySeconds: number;
   /** Number of confirmed screenshots. */
   screenshotCount: number;

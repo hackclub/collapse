@@ -1,6 +1,6 @@
 # @collapse/react — React SDK Documentation
 
-**Package:** `@collapse/react` v0.1.0
+**Package:** `@collapse/react` v0.0.13
 **Peer Dependencies:** React 18+ or 19+
 **Exports:** ESM + CJS with TypeScript declarations
 
@@ -127,12 +127,13 @@ const { state, actions } = useCollapse();
 |-------|------|-------------|
 | `status` | `RecorderStatus` | Current status (see below) |
 | `isSharing` | `boolean` | Whether `getDisplayMedia` is active |
-| `trackedSeconds` | `number` | Server-confirmed tracked time |
-| `displaySeconds` | `number` | Client-interpolated display time (smooth ticking) |
-| `screenshotCount` | `number` | Number of confirmed screenshots |
+| `isRecording` | `boolean` | `true` when actively capturing (`isSharing && (status === "active" \|\| status === "pending")`). Use this instead of compound checks in UI logic. |
+| `trackedSeconds` | `number` | Best-known tracked time — max of server value, last upload confirmation, and local estimate from completed uploads. Updates per-upload, not just on poll. |
+| `displaySeconds` | `number` | Client-interpolated display time (ticks every second via RAF). Monotonic — never jumps backward on server sync. |
+| `screenshotCount` | `number` | Number of confirmed screenshots — max of server count and local upload count, so it updates immediately on upload. |
 | `uploads` | `UploadState` | Upload queue: `{ pending, completed, failed }` |
 | `lastScreenshotUrl` | `string \| null` | Object URL of last captured screenshot |
-| `videoUrl` | `string \| null` | Video URL when complete |
+| `videoUrl` | `string \| null` | Video URL when complete. Auto-fetched from server when status reaches `"complete"`. |
 | `error` | `string \| null` | Error message when status is `"error"` |
 
 #### `actions: CollapseActions`
@@ -252,7 +253,9 @@ const session = useSession();
 
 ### `useSessionTimer(serverTrackedSeconds, isActive)`
 
-Client-side interpolated timer. Uses server-provided seconds as ground truth, interpolates between updates for smooth display.
+Client-side interpolated timer. Uses server-provided seconds as a base, ticks every second via `requestAnimationFrame`, and maintains a monotonic ratchet so the display never jumps backward when the server syncs.
+
+When a new `serverTrackedSeconds` arrives, the timer takes the higher of the current display value and the server value as its new base, then continues counting from there. This prevents visible snaps (e.g., display at 11:05, server reports 11:00 → display stays at 11:05).
 
 ```ts
 const displaySeconds = useSessionTimer(trackedSeconds, isActive);
@@ -262,10 +265,10 @@ const displaySeconds = useSessionTimer(trackedSeconds, isActive);
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `serverTrackedSeconds` | `number` | Ground truth from server |
+| `serverTrackedSeconds` | `number` | Base tracked time (from server or local estimate) |
 | `isActive` | `boolean` | Whether to tick the timer |
 
-**Returns:** `number` — interpolated display seconds
+**Returns:** `number` — interpolated display seconds (monotonically increasing while active)
 
 ---
 
