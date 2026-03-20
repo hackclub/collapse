@@ -15,6 +15,29 @@ import { RecordPage } from "./components/RecordPage.js";
 
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
+/** Pause a session by token. Fire-and-forget, logs errors. */
+async function pauseSession(token: string): Promise<void> {
+  try {
+    console.log(`[app] pausing session ${token.slice(0, 8)}...`);
+    await fetch(`${API_BASE}/api/sessions/${token}/pause`, { method: "POST" });
+    console.log(`[app] paused session ${token.slice(0, 8)}`);
+  } catch (e) {
+    console.error(`[app] failed to pause session ${token.slice(0, 8)}:`, e);
+  }
+}
+
+/** Fetch a session's status. Returns null on error. */
+async function fetchSessionStatus(token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/sessions/${token}/status`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const isMacOS = navigator.userAgent.includes("Mac");
   const [permissionGranted, setPermissionGranted] = useState(!isMacOS);
@@ -25,25 +48,46 @@ export function App() {
     tokens: tokenStore.getAllTokenValues(),
   });
 
-  // Deep link handler -- saves token and navigates to record.
+  // Deep link handler -- saves token and navigates appropriately.
+  // If currently recording another session, pauses it first.
   // Tracks the last processed URL to deduplicate retried cold-start emits.
   const lastDeepLink = React.useRef<string | null>(null);
   const handleDeepLinkUrls = useCallback(
-    (urls: string[]) => {
+    async (urls: string[]) => {
       console.log("[app] deep link received:", urls);
       for (const url of urls) {
         if (url === lastDeepLink.current) return; // already handled
         const token = extractToken(url);
-        if (token) {
-          console.log(`[app] extracted token: ${token.slice(0, 8)}...`);
-          lastDeepLink.current = url;
-          tokenStore.addToken(token);
-          navigate({ page: "record", token });
-          return;
+        if (!token) continue;
+
+        console.log(`[app] extracted token: ${token.slice(0, 8)}...`);
+        lastDeepLink.current = url;
+        tokenStore.addToken(token);
+
+        // If we're currently recording a different session, pause it first
+        if (route.page === "record" && route.token && route.token !== token) {
+          console.log(`[app] deep link interrupting active session ${route.token.slice(0, 8)}...`);
+          await pauseSession(route.token);
         }
+
+        // Check the incoming session's status to decide where to go
+        const status = await fetchSessionStatus(token);
+        console.log(`[app] incoming session status: ${status}`);
+
+        if (status && ["stopped", "compiling", "complete", "failed"].includes(status)) {
+          // Session is finished — go to detail view
+          navigate({ page: "session", token });
+        } else {
+          // Session is recordable (pending/active/paused) or unknown — go to record
+          navigate({ page: "record", token });
+        }
+
+        // Bring window to front
+        getCurrentWindow().setFocus().catch(() => {});
+        return;
       }
     },
-    [tokenStore, navigate],
+    [tokenStore, navigate, route],
   );
   // Ref so effects can call the latest version without depending on it
   const handleDeepLinkRef = React.useRef(handleDeepLinkUrls);
@@ -90,14 +134,14 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle ?token= query param (dev mode)
+  // Handle ?token= query param (dev mode) — route through the same handler
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     if (token && isValidToken(token)) {
-      tokenStore.addToken(token);
-      navigate({ page: "record", token });
+      handleDeepLinkRef.current([`collapse://session/?token=${token}`]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Enable vibrancy globally for the app

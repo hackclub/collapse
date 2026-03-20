@@ -11,6 +11,35 @@ pub struct AppState {
     pub cold_start_urls: Mutex<Option<Vec<String>>>,
 }
 
+/// Central deep link handler. All deep link entry points (cold start, single
+/// instance, macOS Apple Events) route through here. Stashes URLs for
+/// cold-start polling AND emits them for the warm-start JS listener.
+fn handle_deep_link_urls(app: &AppHandle, urls: Vec<String>) {
+    if urls.is_empty() {
+        return;
+    }
+    eprintln!("[deep-link] handling urls: {urls:?}");
+
+    // Stash for cold-start polling (get_cold_start_urls command)
+    if let Ok(mut state) = app.state::<AppState>().cold_start_urls.lock() {
+        *state = Some(urls.clone());
+    }
+
+    // Emit for warm-start JS listener (onOpenUrl)
+    let parsed: Vec<url::Url> = urls
+        .iter()
+        .filter_map(|u| u.parse::<url::Url>().ok())
+        .collect();
+    if !parsed.is_empty() {
+        let _ = app.emit("deep-link://new-url", parsed);
+    }
+
+    // Focus the window
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_focus();
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub token: String,
@@ -359,21 +388,17 @@ pub fn run() {
         // this detects it, forwards args to the running instance, and exits
         // before initializing any other plugins.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // The deep-link URL is passed as the second CLI arg.
-            // Emit the deep-link event so the frontend's onOpenUrl listener
-            // picks it up (cold_start_urls polling has already finished).
-            if args.len() == 2 {
-                if let Ok(url) = args[1].parse::<url::Url>() {
-                    eprintln!("[single-instance] forwarded deep link: {url}");
-                    use tauri::Emitter;
-                    let _ = app.emit("deep-link://new-url", vec![url]);
-                }
-            }
-
-            // Focus the existing window
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.set_focus();
-            }
+            // On Windows/Linux, deep-link URLs arrive as CLI args when a second
+            // instance is launched. Search all args for a collapse:// URL rather
+            // than assuming a fixed position — installers and protocol handlers
+            // may pass extra flags.
+            eprintln!("[single-instance] args: {args:?}");
+            let urls: Vec<String> = args
+                .iter()
+                .filter(|arg| arg.starts_with("collapse://"))
+                .cloned()
+                .collect();
+            handle_deep_link_urls(app, urls);
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -482,27 +507,17 @@ pub fn run() {
                 eprintln!("[deep-link] registered protocol handler");
             }
 
-            // Try get_current() for cold start
-            let current = app.deep_link().get_current();
-            eprintln!("[deep-link] get_current() = {current:?}");
-            if let Ok(Some(urls)) = current {
+            // Cold start: check if the app was launched via a deep link
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
                 let url_strings: Vec<String> = urls.into_iter().map(|u| u.to_string()).collect();
-                eprintln!("[deep-link] cold start urls: {url_strings:?}");
-                if let Ok(mut state) = app.state::<AppState>().cold_start_urls.lock() {
-                    *state = Some(url_strings);
-                }
+                handle_deep_link_urls(app.handle(), url_strings);
             }
 
-            // Also register a Rust-side listener for deep links that arrive
-            // after setup (macOS sometimes delivers the URL via Apple Event
-            // after the app finishes launching).
+            // macOS: Apple Events can deliver deep links after setup completes
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 let url_strings: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
-                eprintln!("[deep-link] on_open_url: {url_strings:?}");
-                if let Ok(mut state) = handle.state::<AppState>().cold_start_urls.lock() {
-                    *state = Some(url_strings);
-                }
+                handle_deep_link_urls(&handle, url_strings);
             });
 
             // Disable maximize/fullscreen controls on all platforms.
