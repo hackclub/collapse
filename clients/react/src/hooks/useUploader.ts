@@ -90,6 +90,10 @@ export function useUploader(): UploaderResult {
           return URL.createObjectURL(capture.blob);
         });
         setUploads((s) => ({ ...s, completed: s.completed + 1 }));
+        config.callbacks.onUploadSuccess?.({
+          screenshotId,
+          trackedSeconds: result.trackedSeconds,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Upload failed";
         setLastError(msg);

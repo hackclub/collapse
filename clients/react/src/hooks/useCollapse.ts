@@ -18,14 +18,6 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
   const session = useSession();
   const capture = useScreenCapture();
   const uploader = useUploader();
-  const displaySeconds = useSessionTimer(
-    session.trackedSeconds,
-    session.status === "active" && capture.isSharing,
-  );
-
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const capturingRef = useRef(false);
-  const prevStatusRef = useRef<RecorderStatus>(session.status);
 
   // Estimate local tracked seconds from upload count when server hasn't caught up.
   // Server uses (count(distinct minute_buckets) - 1) * 60, so the first bucket
@@ -41,6 +33,15 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     uploader.trackedSeconds,
     localEstimate,
   );
+
+  const displaySeconds = useSessionTimer(
+    bestTrackedSeconds,
+    capture.isSharing && (session.status === "active" || session.status === "pending"),
+  );
+
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const capturingRef = useRef(false);
+  const prevStatusRef = useRef<RecorderStatus>(session.status);
 
   // Sync best tracked seconds to session
   useEffect(() => {

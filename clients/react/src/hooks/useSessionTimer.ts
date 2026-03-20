@@ -16,13 +16,39 @@ export function useSessionTimer(
   const lastSyncRef = useRef(Date.now());
   // Base value the RAF tick counts from. Ratchets up so display never jumps backward.
   const baseRef = useRef(serverTrackedSeconds);
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
+  // Max forward jump (seconds) before we let the timer catch up naturally.
+  // Prevents visible jumps when the server adds a full bucket (e.g. +60s)
+  // but only a few seconds have actually elapsed since resume.
+  const SNAP_THRESHOLD = 3;
 
   useEffect(() => {
-    // Accept the server value as the new base, but never lower the base
-    // below what the display was already showing (prevents backward snap).
-    baseRef.current = Math.max(baseRef.current, serverTrackedSeconds);
-    setDisplaySeconds(baseRef.current);
-    lastSyncRef.current = Date.now();
+    if (!isActiveRef.current) {
+      // Timer isn't ticking — accept server value directly as new base.
+      // No visible jump because the display is static.
+      baseRef.current = Math.max(baseRef.current, serverTrackedSeconds);
+      setDisplaySeconds(baseRef.current);
+      lastSyncRef.current = Date.now();
+      return;
+    }
+
+    const currentDisplay = baseRef.current + Math.floor((Date.now() - lastSyncRef.current) / 1000);
+
+    if (serverTrackedSeconds <= currentDisplay) {
+      // Server is behind or equal — keep current base (prevents backward snap).
+      return;
+    }
+
+    if (serverTrackedSeconds - currentDisplay <= SNAP_THRESHOLD) {
+      // Server is slightly ahead — snap to it (normal sync).
+      baseRef.current = serverTrackedSeconds;
+      setDisplaySeconds(baseRef.current);
+      lastSyncRef.current = Date.now();
+    }
+    // Server is way ahead — don't snap. The RAF tick will count up
+    // naturally and reach the server value on its own.
   }, [serverTrackedSeconds]);
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 # @collapse/react — React SDK Documentation
 
-**Package:** `@collapse/react` v0.0.13
+**Package:** `@collapse/react` v0.0.14
 **Peer Dependencies:** React 18+ or 19+
 **Exports:** ESM + CJS with TypeScript declarations
 
