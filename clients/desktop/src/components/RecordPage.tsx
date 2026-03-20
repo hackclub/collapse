@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   CollapseProvider,
   Button,
-  Card,
   ErrorDisplay,
   PageContainer,
   RecordPageSkeleton,
@@ -10,11 +9,11 @@ import {
   spacing,
   fontSize,
   fontWeight,
-  radii,
 } from "@collapse/react";
 import type { CaptureSource } from "../hooks/useNativeCapture.js";
 import { SourcePicker } from "./SourcePicker.js";
 import { DesktopRecorder } from "./DesktopRecorder.js";
+import { NamingModal } from "./NamingModal.js";
 
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
@@ -27,13 +26,10 @@ interface RecordPageProps {
 export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
   const [captureSource, setCaptureSource] = useState<CaptureSource | null>(null);
   const [stopping, setStopping] = useState(false);
-  const [showNamingPrompt, setShowNamingPrompt] = useState(false);
-  const [timelapseName, setTimelapseName] = useState("");
-  const [stopAction, setStopAction] = useState<"save" | "skip" | null>(null);
   const [sessionCheck, setSessionCheck] = useState<"loading" | "ok" | "finished" | "error">("loading");
   const [sessionStatus, setSessionStatus] = useState<string | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
+  const [isPrompting, setIsPrompting] = useState(false);
 
   // Check if the session is still recordable before showing source picker
   useEffect(() => {
@@ -65,14 +61,13 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
   }, [token]);
 
   const handleStopClick = useCallback(() => {
-    console.log("[record] stop clicked, showing naming prompt");
-    setShowNamingPrompt(true);
-    setTimeout(() => nameInputRef.current?.focus(), 50);
+    setIsPrompting(true);
   }, []);
 
   const handleConfirmStop = useCallback(async (name: string | null) => {
-    console.log(`[record] stopping session, name: ${name?.trim() || "(none)"}`);
+    setIsPrompting(false);
     setStopping(true);
+    console.log(`[record] stopping session, name: ${name?.trim() || "(none)"}`);
     if (name && name.trim()) {
       try {
         await fetch(`${API_BASE}/api/sessions/${token}/name`, {
@@ -81,7 +76,7 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
           body: JSON.stringify({ name: name.trim() }),
         });
       } catch (e) {
-        console.warn("[record] rename failed (non-fatal):", e);
+        console.warn("[record] rename failed:", e);
       }
     }
     try {
@@ -104,7 +99,7 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
           variant="page"
           title="Session Error"
           error={checkError || "Unknown error"}
-          action={{ label: "\u2190 Gallery", onClick: onBack }}
+          action={{ label: "← Gallery", onClick: onBack }}
         />
       </PageContainer>
     );
@@ -133,58 +128,17 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
   }
 
   if (!captureSource) {
-    if (showNamingPrompt) {
-      return (
-        <PageContainer centered maxWidth={480}>
-          <Card padding={spacing.xxl} style={{ textAlign: "center", width: "100%" }}>
-            <h3 style={{ fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.primary, margin: 0, marginBottom: spacing.sm }}>
-              Name your timelapse
-            </h3>
-            <p style={{ fontSize: fontSize.md, color: colors.text.secondary, margin: 0, marginBottom: spacing.lg }}>
-              Give it a name, or skip to use the default.
-            </p>
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={timelapseName}
-              onChange={(e) => setTimelapseName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleConfirmStop(timelapseName); }}
-              placeholder="My timelapse"
-              maxLength={255}
-              disabled={stopping}
-              style={{
-                width: "100%", padding: `${spacing.md}px ${spacing.lg}px`,
-                fontSize: fontSize.lg, fontWeight: fontWeight.medium,
-                color: colors.text.primary, background: colors.bg.sunken,
-                border: `1px solid ${colors.border.default}`, borderRadius: radii.md,
-                outline: "none", boxSizing: "border-box", marginBottom: spacing.lg,
-                opacity: stopping ? 0.5 : 1,
-              }}
-            />
-            <div style={{ display: "flex", gap: spacing.md }}>
-              <Button variant="primary" size="lg" fullWidth loading={stopping && stopAction === "save"} disabled={stopping}
-                onClick={() => { setStopAction("save"); handleConfirmStop(timelapseName); }}>
-                Save &amp; Stop
-              </Button>
-              <Button variant="secondary" size="lg" fullWidth loading={stopping && stopAction === "skip"} disabled={stopping}
-                onClick={() => { setStopAction("skip"); handleConfirmStop(null); }}>
-                Skip
-              </Button>
-            </div>
-          </Card>
-        </PageContainer>
-      );
-    }
-
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <PageContainer maxWidth={480} style={{ paddingBottom: 0, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, width: "100%" }}>
           <Button variant="secondary" size="sm" onClick={onBack}>
             &larr; Gallery
           </Button>
-          <Button variant="danger" size="md" onClick={handleStopClick}>
-            Stop Session
-          </Button>
+          {sessionStatus !== "pending" && (
+            <Button variant="danger" size="md" loading={stopping} onClick={handleStopClick}>
+              Stop Session
+            </Button>
+          )}
         </PageContainer>
         <div style={{ flex: 1, minHeight: 0 }}>
           <SourcePicker
@@ -192,6 +146,7 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
             submitLabel={sessionStatus === "active" || sessionStatus === "paused" ? "Resume Session" : "Start Capture"}
           />
         </div>
+        {isPrompting && <NamingModal loading={stopping} onConfirm={handleConfirmStop} />}
       </div>
     );
   }

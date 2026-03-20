@@ -6,10 +6,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Collapse — Screen Recording Timelapse</title>
     <style>
+      
+      @font-face {
+        font-family: 'Geist';
+        src: url('/fonts/Geist-Regular.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: 'Geist';
+        src: url('/fonts/Geist-Medium.woff2') format('woff2');
+        font-weight: 500;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: 'Geist';
+        src: url('/fonts/Geist-SemiBold.woff2') format('woff2');
+        font-weight: 600;
+        font-style: normal;
+      }
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e5e5e5; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Geist', 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e5e5e5; }
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    
+      /* Hide scrollbar for Windows/Linux to maintain clean transparent look */
+      ::-webkit-scrollbar {
+        width: 0px;
+        background: transparent;
+      }
     </style>
   </head>
   <body>
