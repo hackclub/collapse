@@ -23,6 +23,9 @@ if (isBrowser) {
       --color-icon-selected: rgba(255, 255, 255, 0.8);
       
       --color-status-neutral: rgba(255, 255, 255, 0.2);
+      
+      --color-badge-primary-bg: #22c55e26;
+      --color-badge-primary-text: #22c55e;
     }
     
     @media (prefers-color-scheme: light) {
@@ -45,6 +48,9 @@ if (isBrowser) {
         --color-icon-selected: rgba(0, 0, 0, 0.8);
 
         --color-status-neutral: #000000;
+        
+        --color-badge-primary-bg: #22c55e;
+        --color-badge-primary-text: #ffffff;
       }
     }
   `;
@@ -56,6 +62,7 @@ export const colors = {
   text: { primary: "var(--color-text-primary)", secondary: "var(--color-text-secondary)", tertiary: "var(--color-text-tertiary)", quaternary: "var(--color-text-quaternary)", error: "var(--color-text-error)" },
   border: { default: "var(--color-border-default)", hover: "var(--color-border-hover)", selected: "var(--color-border-selected)" },
   icon: { selected: "var(--color-icon-selected)" },
+  badge: { primaryBg: "var(--color-badge-primary-bg)", primaryText: "var(--color-badge-primary-text)" },
   status: {
     success: "#22c55e",
     info: "#3b82f6",

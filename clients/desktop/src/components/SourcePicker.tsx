@@ -243,8 +243,8 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                     {m.name}
                     {m.isPrimary && (
                       <span style={{
-                        fontSize: fontSize.xs - 1, fontWeight: fontWeight.semibold, color: colors.status.success,
-                        background: `${colors.status.success}26`, padding: "1px 6px", borderRadius: radii.sm,
+                        fontSize: fontSize.xs - 1, fontWeight: fontWeight.semibold, color: colors.badge.primaryText,
+                        background: colors.badge.primaryBg, padding: "1px 6px", borderRadius: radii.sm,
                       }}>
                         Primary
                       </span>
