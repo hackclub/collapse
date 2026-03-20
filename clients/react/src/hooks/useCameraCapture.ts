@@ -7,12 +7,16 @@ import { waitForVideoReady, captureFrameAsJpeg } from "./captureUtils.js";
  * Handles getUserMedia (webcam), device enumeration, canvas snapshots,
  * and stream lifecycle.
  *
- * Mirrors the return shape of `useScreenCapture` so `useCollapse` can
- * delegate to either hook interchangeably, plus camera-specific extras
- * (device list, selection).
+ * Supports a two-phase flow for camera mode:
+ *   1. **Preview** — `startPreview()` acquires the camera stream so the UI
+ *      can show a live `<video>` and a device picker *before* recording.
+ *   2. **Recording** — `startSharing()` reuses the preview stream (or
+ *      acquires one if preview wasn't started) and sets `isSharing = true`,
+ *      which tells `useCollapse` to begin the capture-upload loop.
  *
- * Reads capture settings from CollapseProvider context. Pass explicit
- * settings to override or use standalone (without provider).
+ * Mirrors the base return shape of `useScreenCapture` (`isSharing`,
+ * `startSharing`, `takeScreenshot`, `stopSharing`) so `useCollapse` can
+ * delegate to either hook interchangeably, plus camera-specific extras.
  */
 export function useCameraCapture(overrides?: CaptureSettings) {
   let settings: {
@@ -49,6 +53,8 @@ export function useCameraCapture(overrides?: CaptureSettings) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(
     settings.deviceId ?? null,
@@ -77,50 +83,86 @@ export function useCameraCapture(overrides?: CaptureSettings) {
       navigator.mediaDevices.removeEventListener("devicechange", handler);
   }, [enumerateDevices]);
 
-  // ─── Stream management ─────────────────────────────────
+  // ─── Internal: acquire stream ──────────────────────────
+  const acquireStream = useCallback(
+    async (deviceIdOverride?: string) => {
+      const s = settingsRef.current;
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: s.maxWidth, max: s.maxWidth },
+        height: { ideal: s.maxHeight, max: s.maxHeight },
+        ...s.userMediaConstraints,
+      };
+
+      const devId = deviceIdOverride ?? selectedDeviceId ?? s.deviceId;
+      if (devId) {
+        videoConstraints.deviceId = { exact: devId };
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: false,
+      });
+
+      // Stop any previous stream before replacing refs
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+
+      streamRef.current = stream;
+      setPreviewStream(stream);
+
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+      await waitForVideoReady(video);
+
+      videoRef.current = video;
+
+      if (!canvasRef.current) {
+        canvasRef.current = document.createElement("canvas");
+      }
+
+      const handleEnded = () => {
+        streamRef.current = null;
+        setPreviewStream(null);
+        setIsPreviewing(false);
+        setIsSharing(false);
+      };
+      stream.getVideoTracks()[0].addEventListener("ended", handleEnded);
+
+      // Re-enumerate after first getUserMedia — Safari may now expose labels
+      enumerateDevices();
+
+      return stream;
+    },
+    [selectedDeviceId, enumerateDevices],
+  );
+
+  // ─── Preview (stream without capture loop) ─────────────
+  const startPreview = useCallback(async () => {
+    await acquireStream();
+    setIsPreviewing(true);
+    setIsSharing(false);
+  }, [acquireStream]);
+
+  const stopPreview = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setPreviewStream(null);
+    videoRef.current = null;
+    setIsPreviewing(false);
+    setIsSharing(false);
+  }, []);
+
+  // ─── Recording (triggers capture loop via isSharing) ───
   const startSharing = useCallback(async () => {
-    const s = settingsRef.current;
-    const videoConstraints: MediaTrackConstraints = {
-      width: { ideal: s.maxWidth, max: s.maxWidth },
-      height: { ideal: s.maxHeight, max: s.maxHeight },
-      ...s.userMediaConstraints,
-    };
-
-    // Apply device selection
-    const deviceId = selectedDeviceId ?? s.deviceId;
-    if (deviceId) {
-      videoConstraints.deviceId = { exact: deviceId };
+    // If already previewing, reuse the existing stream
+    if (!streamRef.current) {
+      await acquireStream();
     }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints,
-      audio: false,
-    });
-    streamRef.current = stream;
-
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    video.muted = true;
-    video.playsInline = true;
-    await video.play();
-    await waitForVideoReady(video);
-
-    videoRef.current = video;
-
-    if (!canvasRef.current) {
-      canvasRef.current = document.createElement("canvas");
-    }
-
-    stream.getVideoTracks()[0].addEventListener("ended", () => {
-      streamRef.current = null;
-      setIsSharing(false);
-    });
-
+    setIsPreviewing(false);
     setIsSharing(true);
-
-    // Re-enumerate after first getUserMedia — Safari may now expose labels
-    enumerateDevices();
-  }, [selectedDeviceId, enumerateDevices]);
+  }, [acquireStream]);
 
   const takeScreenshot = useCallback((): Promise<CaptureResult | null> => {
     const video = videoRef.current;
@@ -135,62 +177,61 @@ export function useCameraCapture(overrides?: CaptureSettings) {
   const stopSharing = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    setPreviewStream(null);
+    videoRef.current = null;
+    setIsPreviewing(false);
     setIsSharing(false);
   }, []);
 
   // ─── Device selection ──────────────────────────────────
   const selectDevice = useCallback(
-    (deviceId: string) => {
+    async (deviceId: string) => {
       setSelectedDeviceId(deviceId);
-      // If currently streaming, restart with the new device
+      // If stream is live (preview or recording), restart with new device
       if (streamRef.current) {
-        stopSharing();
-        // Defer start to next tick so state updates propagate
-        setTimeout(() => {
-          // Use the new deviceId directly since state may not have updated yet
-          const s = settingsRef.current;
-          const videoConstraints: MediaTrackConstraints = {
-            width: { ideal: s.maxWidth, max: s.maxWidth },
-            height: { ideal: s.maxHeight, max: s.maxHeight },
-            deviceId: { exact: deviceId },
-            ...s.userMediaConstraints,
-          };
-          navigator.mediaDevices
-            .getUserMedia({ video: videoConstraints, audio: false })
-            .then(async (stream) => {
-              streamRef.current = stream;
-              const video = document.createElement("video");
-              video.srcObject = stream;
-              video.muted = true;
-              video.playsInline = true;
-              await video.play();
-              await waitForVideoReady(video);
-              videoRef.current = video;
-              if (!canvasRef.current) {
-                canvasRef.current = document.createElement("canvas");
-              }
-              stream.getVideoTracks()[0].addEventListener("ended", () => {
-                streamRef.current = null;
-                setIsSharing(false);
-              });
-              setIsSharing(true);
-            })
-            .catch(() => {
-              // Device switch failed — stay stopped
-            });
-        }, 0);
+        const wasSharing = isSharing;
+        try {
+          await acquireStream(deviceId);
+          // Restore the same mode (preview vs sharing)
+          if (wasSharing) {
+            setIsPreviewing(false);
+            setIsSharing(true);
+          } else {
+            setIsPreviewing(true);
+            setIsSharing(false);
+          }
+        } catch {
+          // Device switch failed — stop everything
+          streamRef.current = null;
+          setPreviewStream(null);
+          setIsPreviewing(false);
+          setIsSharing(false);
+        }
       }
     },
-    [stopSharing],
+    [isSharing, acquireStream],
   );
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   return {
     isSharing,
     startSharing,
     takeScreenshot,
     stopSharing,
+    // Camera-specific:
     devices,
     selectedDeviceId,
     selectDevice,
+    // Preview:
+    isPreviewing,
+    previewStream,
+    startPreview,
+    stopPreview,
   };
 }

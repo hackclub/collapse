@@ -14,6 +14,8 @@ export { ScreenPreview } from "./components/ScreenPreview.js";
 export type { ScreenPreviewProps } from "./components/ScreenPreview.js";
 export { CameraSelector } from "./components/CameraSelector.js";
 export type { CameraSelectorProps } from "./components/CameraSelector.js";
+export { CameraPreview } from "./components/CameraPreview.js";
+export type { CameraPreviewProps } from "./components/CameraPreview.js";
 export { ResultView } from "./components/ResultView.js";
 export type { ResultViewProps } from "./components/ResultView.js";
 export { ProcessingState } from "./components/ProcessingState.js";

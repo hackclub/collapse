@@ -159,7 +159,7 @@ const { state, actions } = useCollapse();
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | `RecorderStatus` | Current status (see below) |
-| `isSharing` | `boolean` | Whether `getDisplayMedia` is active |
+| `isSharing` | `boolean` | Whether media capture is active (screen sharing or camera recording) |
 | `isRecording` | `boolean` | `true` when actively capturing (`isSharing && (status === "active" \|\| status === "pending")`). Use this instead of compound checks in UI logic. |
 | `trackedSeconds` | `number` | Best-known tracked time — max of server value, last upload confirmation, and local estimate from completed uploads. Updates per-upload, not just on poll. |
 | `displaySeconds` | `number` | Client-interpolated display time (ticks every second via RAF). Monotonic — never jumps backward on server sync. |
@@ -171,17 +171,21 @@ const { state, actions } = useCollapse();
 | `captureMode` | `CaptureMode` | Active capture mode (`"screen"` or `"camera"`) |
 | `availableCameras` | `MediaDeviceInfo[]` | Available camera devices (populated when mode is `"camera"`) |
 | `selectedCameraId` | `string \| null` | Currently selected camera device ID |
+| `isPreviewing` | `boolean` | Whether camera is in preview mode (stream live, capture loop not started). Camera mode only. |
+| `previewStream` | `MediaStream \| null` | Live camera MediaStream for rendering in a `<video>` element. Available during preview and recording in camera mode. |
 
 #### `actions: CollapseActions`
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `startSharing` | `() => Promise<void>` | Prompt user for screen sharing, begin capturing |
-| `stopSharing` | `() => void` | Stop screen share without stopping session (auto-pauses) |
+| `startSharing` | `() => Promise<void>` | Start capture source and begin the capture-upload loop. In camera mode, reuses the preview stream if one is active. |
+| `stopSharing` | `() => void` | Stop capture source without stopping session (auto-pauses) |
 | `pause` | `() => Promise<void>` | Pause the session |
 | `resume` | `() => Promise<void>` | Resume a paused session |
 | `stop` | `(options?: { name?: string }) => Promise<void>` | Stop the session and trigger compilation. Optionally name the timelapse before stopping. |
-| `selectCamera` | `(deviceId: string) => void` | Select a camera device by ID. Only effective when `captureMode` is `"camera"`. |
+| `selectCamera` | `(deviceId: string) => void` | Select a camera device by ID. Works during preview and recording. |
+| `startPreview` | `() => Promise<void>` | Acquire camera stream for live preview without starting the capture loop. Camera mode only. |
+| `stopPreview` | `() => void` | Stop the preview stream. Camera mode only. |
 
 #### `RecorderStatus`
 
@@ -240,12 +244,13 @@ interface CaptureResult {
 
 ### `useCameraCapture(overrides?)`
 
-Handles `getUserMedia` (webcam), device enumeration, canvas snapshots, and stream lifecycle. Can be used standalone (without provider) by passing explicit settings. Mirrors the return shape of `useScreenCapture` for interchangeability.
+Handles `getUserMedia` (webcam), device enumeration, canvas snapshots, and stream lifecycle. Supports a two-phase flow: **preview** (stream live, no capture loop) → **recording** (`isSharing = true`, triggers capture loop in `useCollapse`). Can be used standalone (without provider) by passing explicit settings.
 
 ```ts
 const {
   isSharing, startSharing, takeScreenshot, stopSharing,
   devices, selectedDeviceId, selectDevice,
+  isPreviewing, previewStream, startPreview, stopPreview,
 } = useCameraCapture();
 ```
 
@@ -259,18 +264,23 @@ const {
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `isSharing` | `boolean` | Whether camera is active |
-| `startSharing` | `() => Promise<void>` | Request camera permission and start stream |
+| `isSharing` | `boolean` | Whether camera is recording (capture loop active) |
+| `startSharing` | `() => Promise<void>` | Start recording — reuses preview stream if active, otherwise acquires one |
 | `takeScreenshot` | `() => Promise<CaptureResult \| null>` | Capture current frame as JPEG blob |
-| `stopSharing` | `() => void` | Stop all camera tracks |
+| `stopSharing` | `() => void` | Stop recording and release camera stream |
 | `devices` | `MediaDeviceInfo[]` | Available camera devices (auto-updated on connect/disconnect) |
 | `selectedDeviceId` | `string \| null` | Currently selected camera device ID |
-| `selectDevice` | `(deviceId: string) => void` | Switch to a different camera (restarts stream if active) |
+| `selectDevice` | `(deviceId: string) => void` | Switch to a different camera (restarts stream, preserves preview/recording mode) |
+| `isPreviewing` | `boolean` | Whether camera is in preview mode (stream live, not recording) |
+| `previewStream` | `MediaStream \| null` | Live camera MediaStream — render in a `<video>` element for live preview |
+| `startPreview` | `() => Promise<void>` | Acquire camera stream for preview without starting the capture loop |
+| `stopPreview` | `() => void` | Stop preview and release camera stream |
 
 **Notes:**
 - Enumerates devices on mount and on the `devicechange` event.
 - Safari may return devices with empty labels before first `getUserMedia` call — labels are populated after the first stream is acquired.
-- `selectDevice` while streaming will stop the current stream and restart with the new device.
+- `selectDevice` while streaming will restart the stream with the new device, preserving the current mode (preview or recording).
+- Stream is cleaned up on unmount if the user navigates away without recording.
 
 ---
 
@@ -440,7 +450,7 @@ type Route =
 
 ### `<CollapseRecorder>`
 
-Drop-in recorder widget. Handles the full lifecycle: screen sharing, capture, upload, pause/resume/stop, compilation polling, and video display. Must be used within `<CollapseProvider>`.
+Drop-in recorder widget. Handles the full lifecycle: capture, upload, pause/resume/stop, compilation polling, and video display. Adapts its UI based on the configured `capture.mode`. Must be used within `<CollapseProvider>`.
 
 ```tsx
 <CollapseRecorder />
@@ -453,7 +463,18 @@ No props — reads everything from context.
 - `no-token` — "no session token" message
 - `error` — error display
 - `stopped` / `compiling` / `complete` / `failed` — `<ProcessingState>`
-- `pending` / `active` / `paused` — `<StatusBar>` + `<ScreenPreview>` + `<RecordingControls>`
+- `pending` / `active` / `paused` — capture UI (varies by mode, see below)
+
+**Screen mode** (`capture.mode: "screen"`, default):
+- `<StatusBar>` + `<ScreenPreview>` + `<RecordingControls>`
+- Copy: "Share Screen & Start Recording", "Share Screen & Resume"
+
+**Camera mode** (`capture.mode: "camera"`):
+- Three-phase flow: idle → preview → recording
+- **Idle**: "Start Camera" button (acquires camera stream for preview)
+- **Preview**: `<CameraPreview>` (live video) + `<CameraSelector>` (if multiple cameras) + "Start Recording" / "Cancel"
+- **Recording**: `<CameraPreview>` + standard Pause/Stop controls
+- Copy adapts: "Start Camera", "Start Recording", "Start Camera & Resume"
 
 ---
 
@@ -517,6 +538,23 @@ Displays the last captured screenshot. Renders nothing if no image.
 | Prop | Type | Description |
 |------|------|-------------|
 | `imageUrl` | `string \| null` | Object URL of the screenshot |
+
+---
+
+### `<CameraPreview>`
+
+Live camera preview using a `<video>` element. Falls back to a static image when no stream is provided. Mirrors the video horizontally for a natural selfie-view.
+
+```tsx
+<CameraPreview stream={state.previewStream} fallbackImageUrl={state.lastScreenshotUrl} />
+```
+
+**Props (`CameraPreviewProps`):**
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `stream` | `MediaStream \| null` | Live camera MediaStream to display |
+| `fallbackImageUrl` | `string \| null?` | Fallback static image URL (e.g. last captured screenshot) |
 
 ---
 

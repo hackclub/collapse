@@ -175,6 +175,10 @@ export interface CollapseState {
   availableCameras: MediaDeviceInfo[];
   /** Currently selected camera device ID. */
   selectedCameraId: string | null;
+  /** Whether camera is in preview mode (stream live, capture loop not started). */
+  isPreviewing: boolean;
+  /** Live camera MediaStream for rendering in a `<video>` element. Null when not previewing/recording. */
+  previewStream: MediaStream | null;
 }
 
 // ─── Collapse Actions ────────────────────────────────────
@@ -192,4 +196,8 @@ export interface CollapseActions {
   stop: (options?: { name?: string }) => Promise<void>;
   /** Select a camera device by ID. Only effective when captureMode is "camera". */
   selectCamera: (deviceId: string) => void;
+  /** Start camera preview without recording. Acquires the stream so the UI can show a live video. */
+  startPreview: () => Promise<void>;
+  /** Stop camera preview (releases stream). */
+  stopPreview: () => void;
 }

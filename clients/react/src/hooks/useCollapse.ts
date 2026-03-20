@@ -164,17 +164,20 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       let message: string;
+      const isCamera = captureMode === "camera";
       if (e.name === "NotAllowedError") {
-        message = "Screen sharing permission was denied. Please try again and select a screen to share.";
+        message = isCamera
+          ? "Camera permission was denied. Please allow camera access and try again."
+          : "Screen sharing permission was denied. Please try again and select a screen to share.";
       } else if (e.name === "AbortError") {
-        message = "Screen sharing was cancelled.";
+        message = isCamera ? "Camera access was cancelled." : "Screen sharing was cancelled.";
       } else {
-        message = e.message || "Failed to start screen sharing.";
+        message = e.message || (isCamera ? "Failed to start camera." : "Failed to start screen sharing.");
       }
       callbacksRef.current.onError?.(new Error(message), "startSharing");
       session.setError(message);
     }
-  }, [capture.startSharing, session]);
+  }, [capture.startSharing, session, captureMode]);
 
   const stopSharing = useCallback(() => {
     capture.stopSharing();
@@ -240,6 +243,8 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     captureMode,
     availableCameras: cameraCapture.devices,
     selectedCameraId: cameraCapture.selectedDeviceId,
+    isPreviewing: cameraCapture.isPreviewing,
+    previewStream: cameraCapture.previewStream,
   };
 
   const actions: CollapseActions = {
@@ -249,6 +254,8 @@ export function useCollapse(): { state: CollapseState; actions: CollapseActions 
     resume,
     stop,
     selectCamera: cameraCapture.selectDevice,
+    startPreview: cameraCapture.startPreview,
+    stopPreview: cameraCapture.stopPreview,
   };
 
   return { state, actions };
