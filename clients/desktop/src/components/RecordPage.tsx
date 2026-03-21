@@ -1,19 +1,17 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   CollapseProvider,
   Button,
-  ErrorDisplay,
-  PageContainer,
-  RecordPageSkeleton,
+  Skeleton,
   colors,
   spacing,
-  fontSize,
-  fontWeight,
+  radii,
 } from "@collapse/react";
 import type { CaptureSource } from "../hooks/useNativeCapture.js";
 import { SourcePicker } from "./SourcePicker.js";
 import { DesktopRecorder } from "./DesktopRecorder.js";
 import { NamingModal } from "./NamingModal.js";
+import { PageLayout, cardButtonStyle } from "./PageLayout.js";
 
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
@@ -65,7 +63,6 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
   }, []);
 
   const handleConfirmStop = useCallback(async (name: string | null) => {
-    setIsPrompting(false);
     setStopping(true);
     console.log(`[record] stopping session, name: ${name?.trim() || "(none)"}`);
     if (name && name.trim()) {
@@ -85,53 +82,76 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
     } catch (e) {
       console.error("[record] stop failed:", e);
     }
-    onBack();
-  }, [token, onBack]);
+    onViewSession(token);
+  }, [token, onViewSession]);
 
+  const handleResumeFromModal = useCallback(() => {
+    setIsPrompting(false);
+  }, []);
+
+  // Loading skeleton that matches the SourcePicker layout
   if (sessionCheck === "loading") {
-    return <RecordPageSkeleton />;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: spacing.lg, width: "100%", boxSizing: "border-box", flexShrink: 0 }}>
+          <Skeleton width={80} height={32} borderRadius={radii.lg} />
+        </div>
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: spacing.lg, paddingTop: 0, flex: 1, width: "100%", boxSizing: "border-box" }}>
+          <Skeleton width="60%" height={20} style={{ marginBottom: spacing.md, marginLeft: "auto", marginRight: "auto" }} />
+          <Skeleton aspectRatio="16/9" borderRadius={radii.lg} style={{ marginBottom: spacing.lg }} />
+          <Skeleton height={36} borderRadius={radii.md} style={{ marginBottom: spacing.md }} />
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} height={48} borderRadius={radii.md} style={{ marginBottom: spacing.xs }} />
+          ))}
+          <Skeleton height={48} borderRadius={radii.lg} style={{ marginTop: spacing.lg }} />
+        </div>
+      </div>
+    );
   }
 
   if (sessionCheck === "error") {
     return (
-      <PageContainer centered>
-        <ErrorDisplay
-          variant="page"
-          title="Session Error"
-          error={checkError || "Unknown error"}
-          action={{ label: "← Gallery", onClick: onBack }}
-        />
-      </PageContainer>
+      <PageLayout
+        onBack={onBack}
+        icon={
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={colors.status.danger} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        }
+        title="Session Error"
+        subtitle={checkError || "Unknown error"}
+      />
     );
   }
 
   if (sessionCheck === "finished") {
     const label = sessionStatus === "complete" ? "Complete" : sessionStatus === "compiling" ? "Compiling" : sessionStatus === "failed" ? "Failed" : "Stopped";
     return (
-      <PageContainer centered>
-        <h2 style={{ fontSize: fontSize.heading, fontWeight: fontWeight.bold, color: colors.text.primary, marginBottom: spacing.sm }}>
-          Session Already {label}
-        </h2>
-        <p style={{ fontSize: fontSize.lg, color: colors.text.secondary, marginBottom: spacing.xl, textAlign: "center" }}>
-          This session is no longer recordable.
-        </p>
-        <div style={{ display: "flex", gap: spacing.md }}>
-          <Button variant="primary" size="md" onClick={() => onViewSession(token)}>
+      <PageLayout
+        onBack={onBack}
+        icon={
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={colors.text.tertiary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        }
+        title={`Session Already ${label}`}
+        subtitle="This session is no longer recordable."
+        actions={
+          <Button variant="primary" size="lg" fullWidth onClick={() => onViewSession(token)}>
             View Timelapse
           </Button>
-          <Button variant="secondary" size="sm" onClick={onBack}>
-            &larr; Gallery
-          </Button>
-        </div>
-      </PageContainer>
+        }
+      />
     );
   }
 
   if (!captureSource) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <PageContainer maxWidth={480} style={{ paddingBottom: 0, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, width: "100%" }}>
-          <Button variant="secondary" size="sm" onClick={onBack}>
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: spacing.lg, paddingBottom: 0, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, width: "100%", boxSizing: "border-box" }}>
+          <Button variant="secondary" size="sm" onClick={onBack} style={cardButtonStyle}>
             &larr; Gallery
           </Button>
           {sessionStatus !== "pending" && (
@@ -139,14 +159,20 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
               Stop Session
             </Button>
           )}
-        </PageContainer>
+        </div>
         <div style={{ flex: 1, minHeight: 0 }}>
           <SourcePicker
             onSelect={setCaptureSource}
             submitLabel={sessionStatus === "active" || sessionStatus === "paused" ? "Resume Session" : "Start Capture"}
           />
         </div>
-        {isPrompting && <NamingModal loading={stopping} onConfirm={handleConfirmStop} />}
+        {isPrompting && (
+          <NamingModal
+            loading={stopping}
+            onConfirm={handleConfirmStop}
+            onResume={handleResumeFromModal}
+          />
+        )}
       </div>
     );
   }
@@ -158,6 +184,7 @@ export function RecordPage({ token, onBack, onViewSession }: RecordPageProps) {
         source={captureSource}
         onChangeSource={() => setCaptureSource(null)}
         onBack={onBack}
+        onViewSession={onViewSession}
       />
     </CollapseProvider>
   );

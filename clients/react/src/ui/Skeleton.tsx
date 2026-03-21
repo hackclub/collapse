@@ -49,15 +49,13 @@ export function GallerySkeleton() {
 
 export function SessionDetailSkeleton() {
   return (
-    <div style={{ padding: spacing.lg }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: spacing.lg }}>
-        <Skeleton width={80} height={32} borderRadius={radii.sm} />
-        <Skeleton width={80} height={32} borderRadius={radii.sm} />
-      </div>
+    <div>
       <Skeleton aspectRatio="16/9" borderRadius={radii.lg} style={{ marginBottom: spacing.lg }} />
+      <Skeleton width="50%" height={18} style={{ marginBottom: spacing.xs }} />
+      <Skeleton width="30%" height={12} style={{ marginBottom: spacing.lg }} />
       <div style={{ display: "flex", gap: spacing.lg, justifyContent: "center" }}>
-        <Skeleton width="45%" height={64} borderRadius={radii.md} />
-        <Skeleton width="45%" height={64} borderRadius={radii.md} />
+        <Skeleton height={64} borderRadius={radii.md} style={{ flex: 1 }} />
+        <Skeleton height={64} borderRadius={radii.md} style={{ flex: 1 }} />
       </div>
     </div>
   );

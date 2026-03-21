@@ -306,9 +306,6 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                   Windows ({sources.windows.length})
                 </span>
               </button>
-              <Button variant="ghost" size="sm" onClick={refresh} title="Refresh" style={{ padding: `6px ${spacing.sm}px`, fontSize: fontSize.md, height: "auto" }}>
-                &#x21bb;
-              </Button>
             </div>
           </LayoutGroup>
         )}

@@ -4,9 +4,10 @@ import { Button, Card, colors, spacing, radii, fontSize, fontWeight } from "@col
 interface NamingModalProps {
   loading: boolean;
   onConfirm: (name: string | null) => void;
+  onResume: () => void;
 }
 
-export function NamingModal({ loading, onConfirm }: NamingModalProps) {
+export function NamingModal({ loading, onConfirm, onResume }: NamingModalProps) {
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -35,7 +36,7 @@ export function NamingModal({ loading, onConfirm }: NamingModalProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") onConfirm(name);
+            if (e.key === "Enter" && !loading) onConfirm(name);
           }}
           placeholder="My timelapse"
           maxLength={255}
@@ -67,13 +68,13 @@ export function NamingModal({ loading, onConfirm }: NamingModalProps) {
             Save &amp; Stop
           </Button>
           <Button
-            variant="secondary"
+            variant="success"
             size="lg"
             fullWidth
             disabled={loading}
-            onClick={() => onConfirm(null)}
+            onClick={onResume}
           >
-            Skip
+            Resume
           </Button>
         </div>
       </Card>

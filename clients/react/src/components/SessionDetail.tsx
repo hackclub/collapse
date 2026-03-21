@@ -7,7 +7,7 @@ import { ProcessingState } from "./ProcessingState.js";
 import { SessionDetailSkeleton } from "../ui/Skeleton.js";
 import { Card } from "../ui/Card.js";
 import { Badge } from "../ui/Badge.js";
-import { statusConfig, colors, spacing, fontSize, fontWeight } from "../ui/theme.js";
+import { statusConfig, colors, spacing, fontSize, fontWeight, radii } from "../ui/theme.js";
 
 export interface SessionDetailProps {
   token: string;
@@ -80,35 +80,29 @@ export function SessionDetail({
     return () => clearInterval(interval);
   }, [status?.status, fetchStatus]);
 
+  const cardButtonStyle: React.CSSProperties = {
+    background: colors.bg.surface,
+    border: `1px solid ${colors.border.default}`,
+    borderRadius: radii.lg,
+  };
+
   return (
     <div style={{ padding: spacing.lg }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
         {onBack && (
-          <Button variant="secondary" size="sm" onClick={onBack}>
+          <Button variant="secondary" size="sm" onClick={onBack} style={cardButtonStyle}>
             &larr; Back
           </Button>
         )}
         <div style={{ display: "flex", gap: spacing.sm }}>
           {onArchive && (
-            <Button variant="secondary" size="sm" onClick={onArchive}>
+            <Button variant="secondary" size="sm" onClick={onArchive} style={cardButtonStyle}>
               Archive
             </Button>
           )}
         </div>
       </div>
-
-      {/* Session name + date */}
-      {sessionInfo && (
-        <div style={{ marginBottom: spacing.lg }}>
-          <div style={{ fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.primary }}>
-            {sessionInfo.name}
-          </div>
-          <div style={{ fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: 2 }}>
-            {new Date(sessionInfo.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-          </div>
-        </div>
-      )}
 
       {error && (
         <ErrorDisplay error={error} variant="banner" title="Error" />
@@ -119,13 +113,25 @@ export function SessionDetail({
       {status && (
         <>
           {/* Video area */}
-          <div style={{ marginBottom: spacing.lg, marginLeft: -spacing.lg, marginRight: -spacing.lg }}>
+          <div style={{ marginBottom: spacing.lg, borderRadius: radii.lg, overflow: "hidden" }}>
             <ProcessingState
               status={status.status}
               trackedSeconds={status.trackedSeconds}
               videoUrl={videoUrl}
             />
           </div>
+
+          {/* Session name + date */}
+          {sessionInfo && (
+            <div style={{ marginBottom: spacing.lg }}>
+              <div style={{ fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.text.primary }}>
+                {sessionInfo.name}
+              </div>
+              <div style={{ fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: 2 }}>
+                {new Date(sessionInfo.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              </div>
+            </div>
+          )}
 
           {/* Stats */}
           <div style={{ display: "flex", gap: spacing.lg, justifyContent: "center" }}>

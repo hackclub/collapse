@@ -3,17 +3,22 @@ import {
   checkScreenRecordingPermission,
   requestScreenRecordingPermission,
 } from "tauri-plugin-macos-permissions-api";
-import { confirm } from "@tauri-apps/plugin-dialog";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-shell";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { invoke } from "@tauri-apps/api/core";
-import { Button, PageContainer, Spinner, colors, spacing, fontSize, fontWeight } from "@collapse/react";
+import { Button, PageContainer, Spinner, colors, spacing, fontSize } from "@collapse/react";
+import { PageLayout } from "./PageLayout.js";
 
 type PermissionStatus = "checking" | "granted" | "denied";
 
+const monitorIcon = (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={colors.text.tertiary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+    <line x1="8" y1="21" x2="16" y2="21" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </svg>
+);
+
 export function PermissionScreen({ onGranted }: { onGranted: () => void }) {
   const [status, setStatus] = useState<PermissionStatus>("checking");
+  const [requested, setRequested] = useState(false);
 
   const checkPermission = useCallback(async () => {
     try {
@@ -34,33 +39,15 @@ export function PermissionScreen({ onGranted }: { onGranted: () => void }) {
   useEffect(() => { checkPermission(); }, [checkPermission]);
 
   const handleRequest = useCallback(async () => {
-    // Attempt to trigger the native macOS dialog, which sometimes silently fails if previously denied.
-    // So we also explicitly open System Settings to the right pane.
-    requestScreenRecordingPermission().catch(() => {});
-    await open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture").catch(() => {});
-    // Fallback for macOS Ventura/Sonoma format if the first fails/doesn't exist
-    await open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture").catch(() => {});
-
-    const shouldRestart = await confirm(
-      "After adding Collapse in System Settings, you'll need to restart the app for the permission to take effect.",
-      {
-        title: "Restart Required",
-        kind: "info",
-        okLabel: "Restart, I've granted permission",
-        cancelLabel: "No, I still need to add it",
-      },
-    );
-
-    if (shouldRestart) {
-      await relaunch();
-    }
+    setRequested(true);
+    await requestScreenRecordingPermission();
   }, []);
 
   if (status === "checking") {
     return (
       <PageContainer centered>
         <Spinner size="md" />
-        <p style={{ fontSize: fontSize.lg, color: colors.text.primary, opacity: 0.6, marginTop: spacing.md }}>
+        <p style={{ fontSize: fontSize.lg, color: colors.text.secondary, marginTop: spacing.md }}>
           Checking screen recording permission...
         </p>
       </PageContainer>
@@ -68,51 +55,19 @@ export function PermissionScreen({ onGranted }: { onGranted: () => void }) {
   }
 
   return (
-    <PageContainer centered>
-      <div style={{ width: "100%", maxWidth: 520, textAlign: "center", padding: 24, background: "transparent" }}>
-        <h2 style={{ fontSize: fontSize.xxl, fontWeight: fontWeight.bold, color: colors.text.primary, marginBottom: spacing.md }}>
-          Screen Recording Permission
-        </h2>
-        <p style={{ fontSize: fontSize.md, color: colors.text.primary, opacity: 0.6, lineHeight: 1.6, marginBottom: spacing.lg }}>
-          Collapse needs screen recording access to capture screenshots of your work.
-          Your screen is captured locally and only periodic screenshots are uploaded.
-        </p>
-        <p style={{ color: colors.text.primary, opacity: 0.4, fontSize: fontSize.sm, lineHeight: 1.5, marginBottom: spacing.xl }}>
-          Open System Settings, enable Collapse under Privacy &amp; Security &gt; Screen Recording, then restart the app.
-        </p>
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          onClick={handleRequest}
-          style={{
-            borderRadius: 9999,
-            background: colors.text.primary,
-            color: colors.text.inverse,
-            border: "none",
-            fontWeight: 600,
-          }}
-        >
-          Grant Permission
+    <PageLayout
+      icon={monitorIcon}
+      title="Screen Recording Permission"
+      subtitle="Collapse needs screen recording access to capture screenshots of your work. Your screen is captured locally and only periodic screenshots are uploaded."
+      hint={'After enabling "Collapse" in System Settings > Privacy > Screen Recording, quit and reopen the app. If it still doesn\'t work, remove Collapse from the list entirely, restart the app, and grant permission again.'}
+      actions={<>
+        <Button variant="primary" size="lg" fullWidth onClick={handleRequest} disabled={requested}>
+          {requested ? "Opened System Settings" : "Grant Permission"}
         </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onGranted}
-          style={{
-            marginTop: spacing.xl,
-            borderRadius: 9999,
-            background: colors.bg.surface,
-            color: colors.text.secondary,
-            border: "none",
-            display: "inline-flex",
-            padding: "8px 24px",
-            fontWeight: 500,
-          }}
-        >
-          Skip (proceed anyway)
+        <Button variant="secondary" size="lg" fullWidth onClick={onGranted}>
+          Skip
         </Button>
-      </div>
-    </PageContainer>
+      </>}
+    />
   );
 }

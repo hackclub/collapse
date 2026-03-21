@@ -1,6 +1,6 @@
 {
   "name": "@collapse/react",
-  "version": "0.0.15",
+  "version": "0.0.18",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -20,7 +20,12 @@
   "files": [
     "dist"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/ui/theme.js",
+    "./dist/ui/theme.mjs",
+    "./dist/ui/theme.cjs",
+    "./src/ui/theme.ts"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

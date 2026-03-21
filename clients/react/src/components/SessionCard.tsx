@@ -28,7 +28,7 @@ export function SessionCard({ session, onClick, onArchive }: SessionCardProps) {
           <img
             src={session.thumbnailUrl}
             alt="Timelapse thumbnail"
-            style={{ width: "100%", height: "100%", objectFit: "fill", display: "block" }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
             loading="lazy"
           />
         ) : (

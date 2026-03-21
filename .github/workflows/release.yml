@@ -202,7 +202,16 @@ jobs:
               *windows*) OS="windows" ;;
               *) OS="unknown" ;;
             esac
-            # Add OS label: Collapse_0.0.7_x64-setup.exe -> Collapse_0.0.7_windows-x64-setup.exe
+            # Normalize RPM names to match underscore convention used by other artifacts
+            # Collapse-0.0.16-1.x86_64.rpm -> Collapse_0.0.16_x86_64.rpm
+            if [[ "$FILENAME" == *.rpm ]]; then
+              # Strip "Collapse-", version, release number; extract arch
+              RPM_REST="${FILENAME#Collapse-}"       # 0.0.16-1.x86_64.rpm
+              RPM_VER="${RPM_REST%%-[0-9].*}"        # 0.0.16
+              RPM_ARCH="${RPM_REST##*-[0-9].}"       # x86_64.rpm
+              FILENAME="Collapse_${RPM_VER}_${RPM_ARCH}"
+            fi
+            # Add OS label: Collapse_0.0.16_x64-setup.exe -> Collapse_linux-0.0.16_x64-setup.exe
             if [[ "$FILENAME" == *"_"* ]] && [[ "$FILENAME" != *"${OS}-"* ]]; then
               PREFIX="${FILENAME%%_*}"
               SUFFIX="${FILENAME#*_}"

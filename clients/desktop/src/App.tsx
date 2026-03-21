@@ -10,9 +10,11 @@ import {
   useGallery,
   useHashRouter,
 } from "@collapse/react";
+import { getVersion } from "@tauri-apps/api/app";
 import { isValidToken, extractToken } from "./utils.js";
 import { PermissionScreen } from "./components/PermissionScreen.js";
 import { RecordPage } from "./components/RecordPage.js";
+import { AddSessionPage } from "./components/AddSessionPage.js";
 
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
@@ -148,6 +150,13 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Set window title with version
+  useEffect(() => {
+    getVersion().then((v) => {
+      getCurrentWindow().setTitle(`Collapse v${v}`);
+    }).catch(() => {});
+  }, []);
+
   // Enable vibrancy globally for the app
   useEffect(() => {
     const html = document.documentElement;
@@ -213,7 +222,17 @@ export function App() {
                 gallery.refresh();
               }
             }}
-            onRefresh={gallery.refresh}
+            onAdd={() => navigate({ page: "add" })}
+          />
+        );
+      case "add":
+        return (
+          <AddSessionPage
+            onBack={() => navigate({ page: "gallery" })}
+            onStart={(token) => {
+              tokenStore.addToken(token);
+              handleDeepLinkRef.current([`collapse://session/?token=${token}`]);
+            }}
           />
         );
       case "record":
@@ -237,11 +256,15 @@ export function App() {
             key={route.token}
             token={route.token}
             apiBaseUrl={API_BASE}
-            onBack={() => navigate({ page: "gallery" })}
+            onBack={() => {
+              gallery.refresh();
+              navigate({ page: "gallery" });
+            }}
             onArchive={async () => {
               const yes = await confirm("Are you sure you want to archive this session?", { title: "Archive Session", kind: "warning" });
               if (yes) {
                 tokenStore.archiveToken(route.token);
+                gallery.refresh();
                 navigate({ page: "gallery" });
               }
             }}

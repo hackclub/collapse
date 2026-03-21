@@ -705,6 +705,21 @@ pub fn run() {
                     ],
                 )?;
 
+                let edit_menu = Submenu::with_items(
+                    app,
+                    "Edit",
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(app, None)?,
+                        &PredefinedMenuItem::redo(app, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &PredefinedMenuItem::cut(app, None)?,
+                        &PredefinedMenuItem::copy(app, None)?,
+                        &PredefinedMenuItem::paste(app, None)?,
+                        &PredefinedMenuItem::select_all(app, None)?,
+                    ],
+                )?;
+
                 let window_menu = Submenu::with_items(
                     app,
                     "Window",
@@ -722,7 +737,7 @@ pub fn run() {
                 let gh_item = MenuItem::with_id(app, "github", "GitHub Repo", true, None::<&str>)?;
                 let help_menu = Submenu::with_items(app, "Help", true, &[&docs_item, &guide_item, &gh_item])?;
 
-                let menu = Menu::with_items(app, &[&app_menu, &window_menu, &help_menu])?;
+                let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu, &help_menu])?;
                 app.set_menu(menu)?;
 
                 app.on_menu_event(move |app_handle, event| {

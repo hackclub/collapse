@@ -1,16 +1,13 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { listen } from "@tauri-apps/api/event";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   useSession,
   useSessionTimer,
-  StatusBar,
-  ResultView,
+  formatTime,
   Button,
   ErrorDisplay,
   PageContainer,
-  Card,
   Spinner,
+  Skeleton,
   colors,
   spacing,
   fontSize,
@@ -22,17 +19,19 @@ import { NamingModal } from "./NamingModal.js";
 import { useNativeCapture } from "../hooks/useNativeCapture.js";
 import type { CaptureSource } from "../hooks/useNativeCapture.js";
 import { useScreenPreview } from "../hooks/useScreenPreview.js";
+import { cardButtonStyle } from "./PageLayout.js";
 
 interface DesktopRecorderProps {
   token: string;
   source: CaptureSource;
   onChangeSource: () => void;
   onBack: () => void;
+  onViewSession: (token: string) => void;
 }
 
 const API_BASE = "https://collapse.b.selfhosted.hackclub.com";
 
-export function DesktopRecorder({ token, source, onChangeSource, onBack }: DesktopRecorderProps) {
+export function DesktopRecorder({ token, source, onChangeSource, onBack, onViewSession }: DesktopRecorderProps) {
   const session = useSession();
   const capture = useNativeCapture(token, API_BASE, source);
   // Live preview runs until first capture arrives, then the captured frame takes over
@@ -50,25 +49,34 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
   const [resumeLoading, setResumeLoading] = useState(false);
   const [stopLoading, setStopLoading] = useState(false);
   const [isPrompting, setIsPrompting] = useState(false);
-  const [timelapseName, setTimelapseName] = useState("");
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const stopActionHandled = useRef(false);
+  const autoStarted = useRef(false);
 
-  // Focus the name input when the naming prompt appears
+  // Auto-start recording when component mounts and session is ready (#5)
   useEffect(() => {
-    if (isPrompting) {
-      // Small timeout to allow the modal to render
-      setTimeout(() => nameInputRef.current?.focus(), 50);
+    if (autoStarted.current) return;
+    if (session.status === "loading" || session.status === "error") return;
+    const isActive = session.status === "active" || session.status === "pending";
+    if (isActive && !capture.isCapturing) {
+      autoStarted.current = true;
+      capture.startCapturing();
     }
-  }, [isPrompting]);
+  }, [session.status, capture.isCapturing, capture]);
+
+  // Navigate to session detail when terminal state is reached (#9)
+  useEffect(() => {
+    if (["stopped", "compiling", "complete", "failed"].includes(session.status) && !isPrompting && !stopLoading) {
+      onViewSession(token);
+    }
+  }, [session.status, token, onViewSession, isPrompting, stopLoading]);
 
   // Finalize stop: optionally name, then stop the session.
+  // Keep modal open during the stop so loading shows on modal button (#8)
   const handleConfirmStop = useCallback(async (name: string | null) => {
     if (stopActionHandled.current) return; // prevent duplicate calls
     stopActionHandled.current = true;
-    setIsPrompting(false);
-    console.log(`[session] stopping, name: ${name?.trim() || "(none)"}`);
     setStopLoading(true);
+    console.log(`[session] stopping, name: ${name?.trim() || "(none)"}`);
     if (name && name.trim()) {
       try {
         await fetch(`${API_BASE}/api/sessions/${token}/name`, {
@@ -80,20 +88,19 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
         console.warn("[session] rename failed (non-fatal):", e);
       }
     }
-    
+
     try {
       await session.stop();
-      console.log("[session] stopped, transitioning to terminal state");
+      console.log("[session] stopped, navigating to session detail");
+      // Navigation happens via the useEffect watching session.status
+      setIsPrompting(false);
+      setStopLoading(false);
     } catch (e) {
       console.error("[session] failed to stop session", e);
-      setStopLoading(false); // recover from error
+      setStopLoading(false);
       stopActionHandled.current = false;
     }
   }, [token, session]);
-
-  const handleStart = useCallback(async () => {
-    await capture.startCapturing();
-  }, [capture]);
 
   const handlePause = useCallback(async () => {
     console.log("[session] pausing...");
@@ -113,21 +120,42 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
     setResumeLoading(false);
   }, [capture, session]);
 
-  // Stop button opens the naming prompt in a modal instead of a separate window
-  const handleStopClick = useCallback(() => {
-    console.log("[session] stop clicked, opening naming modal");
-    setIsPrompting(true);
+  // Stop button: pause session + stop capture + show naming modal
+  const handleStopClick = useCallback(async () => {
+    console.log("[session] stop clicked, pausing and opening naming modal");
     capture.stopCapturing();
-  }, [capture]);
+    await session.pause();
+    setIsPrompting(true);
+  }, [capture, session]);
 
+  // Resume from naming modal: close modal, resume recording
+  const handleResumeFromModal = useCallback(async () => {
+    console.log("[session] resume from modal, closing and resuming");
+    setIsPrompting(false);
+    setResumeLoading(true);
+    await session.resume();
+    await capture.startCapturing();
+    setResumeLoading(false);
+  }, [capture, session]);
+
+  // Loading/skeleton state (#4)
   if (session.status === "loading") {
     return (
-      <PageContainer centered>
-        <Spinner size="md" />
-        <p style={{ fontSize: fontSize.lg, color: colors.text.secondary, marginTop: spacing.md }}>
-          Loading session...
-        </p>
-      </PageContainer>
+      <div style={{
+        display: "flex", flexDirection: "column", height: "100%",
+        maxWidth: 480, margin: "0 auto", padding: spacing.lg, boxSizing: "border-box",
+      }}>
+        <div style={{ flexShrink: 0, marginBottom: spacing.lg }}>
+          <Skeleton height={56} borderRadius={radii.md} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <Skeleton aspectRatio="16/9" borderRadius={radii.lg} />
+        </div>
+        <div style={{ flexShrink: 0, display: "flex", gap: spacing.md, marginTop: spacing.lg }}>
+          <Skeleton height={48} borderRadius={radii.lg} style={{ flex: 1 }} />
+          <Skeleton height={48} borderRadius={radii.lg} style={{ flex: 1 }} />
+        </div>
+      </div>
     );
   }
 
@@ -144,21 +172,12 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
     );
   }
 
-  // Terminal states: render inline with back button and status bar still visible
+  // Terminal states are handled by the useEffect above (navigates to session detail)
+  // Show a brief loading state while navigation happens
   if (["stopped", "compiling", "complete", "failed"].includes(session.status)) {
     return (
-      <PageContainer maxWidth={480} style={{ paddingTop: spacing.xl, width: "100%" }}>
-        <Button variant="secondary" size="sm" onClick={onBack} style={{ marginBottom: spacing.md }}>
-          &larr; Gallery
-        </Button>
-        <StatusBar
-          displaySeconds={displaySeconds}
-          screenshotCount={session.screenshotCount + capture.screenshotCount}
-          uploads={{ pending: 0, completed: 0, failed: 0 }}
-        />
-        <div style={{ marginTop: spacing.lg, marginLeft: -spacing.lg, marginRight: -spacing.lg }}>
-          <ResultView status={session.status} trackedSeconds={session.trackedSeconds} />
-        </div>
+      <PageContainer centered>
+        <Spinner size="md" />
       </PageContainer>
     );
   }
@@ -167,7 +186,7 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
   const isPaused = session.status === "paused";
 
   // Pin controls to pre-action state during transitions to prevent flashes.
-  let controlMode: "recording" | "paused" | "idle";
+  let controlMode: "recording" | "paused";
   if (pauseLoading || ((stopLoading || isPrompting) && isActive)) {
     controlMode = "recording";
   } else if (resumeLoading || ((stopLoading || isPrompting) && isPaused)) {
@@ -177,87 +196,112 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
   } else if (isPaused) {
     controlMode = "paused";
   } else {
-    controlMode = "idle";
+    // During auto-start, show recording layout
+    controlMode = "recording";
   }
 
-  const isRecording = controlMode === "recording" || controlMode === "paused";
-
-  // Format the recording date
-  const dateStr = session.createdAt
-    ? new Date(session.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : "";
+  const screenshotCount = session.screenshotCount + capture.screenshotCount;
 
   return (
-    <PageContainer maxWidth={480} style={{ paddingTop: spacing.xl }}>
-      {/* Back button — only when idle (not during recording) */}
-      {!isRecording && (
-        <Button variant="secondary" size="sm" onClick={onBack} style={{ marginBottom: spacing.md }}>
-          &larr; Gallery
-        </Button>
-      )}
-
-      {/* Session info */}
-      {session.name && (
-        <div style={{ marginBottom: spacing.md }}>
-          <div style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.text.primary }}>
-            {session.name}
-          </div>
-          {dateStr && (
-            <div style={{ fontSize: fontSize.xs, color: colors.text.tertiary, marginTop: 2 }}>
-              {dateStr}
-            </div>
+    <div style={{
+      display: "flex", flexDirection: "column", height: "100%",
+      maxWidth: 480, margin: "0 auto", padding: spacing.lg, boxSizing: "border-box",
+    }}>
+      {/* Status card — recording indicator + timer + screenshot count */}
+      <div style={{
+        flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: `${spacing.md}px ${spacing.xl}px`,
+        background: colors.bg.surface, borderRadius: radii.md,
+        border: `1px solid ${colors.border.default}`,
+        marginBottom: spacing.lg,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
+          {controlMode === "recording" && (
+            <div style={{
+              width: 10, height: 10, borderRadius: "50%", background: colors.status.danger,
+              animation: "pulse 1.5s ease-in-out infinite", flexShrink: 0,
+            }} />
           )}
-        </div>
-      )}
-
-      <StatusBar
-        displaySeconds={displaySeconds}
-        screenshotCount={session.screenshotCount + capture.screenshotCount}
-        uploads={{ pending: 0, completed: 0, failed: 0 }}
-      />
-
-      {/* Screen preview — shows captured frame after first capture, live preview before */}
-      {previewUrl && (
-        <div style={{
-          position: "relative", marginBottom: spacing.md, borderRadius: radii.md,
-          overflow: "hidden", background: colors.bg.sunken, border: `1px solid ${colors.border.default}`,
-        }}>
-          <img
-            src={previewUrl}
-            alt="Screen preview"
-            style={{ width: "100%", display: "block" }}
-          />
+          {controlMode === "paused" && (
+            <span style={{ fontSize: fontSize.md, color: colors.text.tertiary, flexShrink: 0, lineHeight: 1 }}>
+              ⏸︎
+            </span>
+          )}
           <span style={{
-            position: "absolute", bottom: 6, right: 6, fontSize: fontSize.xs,
-            color: colors.badge.overlayText, background: colors.badge.overlayBg,
-            padding: "2px 6px", borderRadius: radii.sm,
+            fontSize: fontSize.timer,
+            fontWeight: fontWeight.bold,
+            fontVariantNumeric: "tabular-nums",
+            color: colors.text.primary,
           }}>
-            {capture.lastScreenshotUrl ? "Latest capture" : "Live preview"}
+            {formatTime(displaySeconds)}
           </span>
         </div>
-      )}
+        <span style={{ fontSize: fontSize.md, color: colors.text.secondary }}>
+          {screenshotCount} {screenshotCount === 1 ? "screenshot" : "screenshots"}
+        </span>
+      </div>
+
+      {/* Screen preview — fills available space */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", marginBottom: spacing.lg }}>
+        {previewUrl ? (
+          <div style={{
+            position: "relative", borderRadius: radii.lg,
+            overflow: "hidden", background: colors.bg.sunken, border: `1px solid ${colors.border.default}`,
+            flex: 1, minHeight: 0,
+          }}>
+            <img
+              src={previewUrl}
+              alt="Screen preview"
+              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+            />
+            <span style={{
+              position: "absolute", bottom: 6, right: 6, fontSize: fontSize.xs,
+              color: colors.badge.overlayText, background: colors.badge.overlayBg,
+              padding: "2px 6px", borderRadius: radii.sm,
+            }}>
+              {capture.lastScreenshotUrl ? "Latest capture" : "Live preview"}
+            </span>
+          </div>
+        ) : (
+          <div style={{
+            borderRadius: radii.lg, overflow: "hidden", background: colors.bg.sunken,
+            border: `1px solid ${colors.border.default}`, aspectRatio: "16/9",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Spinner size="sm" />
+          </div>
+        )}
+      </div>
 
       {capture.error && (
         <ErrorDisplay variant="banner" error={capture.error} onCopy={() => navigator.clipboard.writeText(getReport())} />
       )}
 
-      <div style={{
-        display: "flex", alignItems: "center", gap: spacing.md,
-        justifyContent: "center", flexWrap: "wrap",
-      }}>
+      {/* Buttons — half-and-half at bottom */}
+      <div style={{ flexShrink: 0, display: "flex", gap: spacing.md }}>
         {controlMode === "recording" && (
           <>
-            <div style={{
-              width: 10, height: 10, borderRadius: "50%", background: colors.status.danger,
-              animation: "pulse 1.5s ease-in-out infinite",
-            }} />
-            <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.status.danger, marginRight: spacing.sm }}>
-              Recording
-            </span>
-            <Button variant="warning" size="md" loading={pauseLoading} onClick={handlePause} disabled={stopLoading || isPrompting}>
+            <Button
+              variant="warning"
+              size="lg"
+              loading={pauseLoading}
+              onClick={handlePause}
+              disabled={stopLoading || isPrompting}
+              fullWidth
+              style={{ flex: 1 }}
+            >
               Pause
             </Button>
-            <Button variant="danger" size="md" loading={stopLoading} onClick={handleStopClick} disabled={pauseLoading || stopLoading || isPrompting}>
+            <Button
+              variant="danger"
+              size="lg"
+              loading={stopLoading}
+              onClick={handleStopClick}
+              disabled={pauseLoading || stopLoading || isPrompting}
+              fullWidth
+              style={{ flex: 1 }}
+            >
               Stop
             </Button>
           </>
@@ -265,28 +309,39 @@ export function DesktopRecorder({ token, source, onChangeSource, onBack }: Deskt
 
         {controlMode === "paused" && (
           <>
-            <Button variant="primary" size="lg" loading={resumeLoading} onClick={handleResume} disabled={stopLoading || isPrompting}>
+            <Button
+              variant="success"
+              size="lg"
+              loading={resumeLoading}
+              onClick={handleResume}
+              disabled={stopLoading || isPrompting}
+              fullWidth
+              style={{ flex: 1 }}
+            >
               Resume
             </Button>
-            <Button variant="danger" size="lg" loading={stopLoading} onClick={handleStopClick} disabled={resumeLoading || stopLoading || isPrompting}>
-              Stop Session
-            </Button>
-          </>
-        )}
-
-        {controlMode === "idle" && (
-          <>
-            <Button variant="success" size="lg" onClick={handleStart}>
-              Start Recording
-            </Button>
-            <Button variant="secondary" size="sm" onClick={onChangeSource}>
-              Change Source
+            <Button
+              variant="danger"
+              size="lg"
+              loading={stopLoading}
+              onClick={handleStopClick}
+              disabled={resumeLoading || stopLoading || isPrompting}
+              fullWidth
+              style={{ flex: 1 }}
+            >
+              Stop
             </Button>
           </>
         )}
       </div>
 
-      {isPrompting && <NamingModal loading={stopLoading} onConfirm={handleConfirmStop} />}
-    </PageContainer>
+      {isPrompting && (
+        <NamingModal
+          loading={stopLoading}
+          onConfirm={handleConfirmStop}
+          onResume={handleResumeFromModal}
+        />
+      )}
+    </div>
   );
 }
