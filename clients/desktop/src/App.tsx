@@ -168,11 +168,18 @@ export function App() {
       // WebKitGTK natively supports prefers-color-scheme (via xdg-desktop-portal / org.freedesktop.appearance).
       // So we just rely on standard browser matchMedia to get the universal native standard.
       const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      updateTheme(mediaQuery.matches ? "dark" : "light");
-
-      const listener = (e: MediaQueryListEvent) => {
-        updateTheme(e.matches ? "dark" : "light");
+      const getSystemTheme = () => mediaQuery.matches ? "dark" : "light";
+      
+      const applyTheme = () => {
+        const theme = getSystemTheme();
+        updateTheme(theme);
+        // Force the Tauri window GTK decorations to match the media query since winit is confused
+        getCurrentWindow().setTheme(theme).catch(() => {});
       };
+      
+      applyTheme();
+
+      const listener = () => applyTheme();
       mediaQuery.addEventListener("change", listener);
 
       return () => mediaQuery.removeEventListener("change", listener);
