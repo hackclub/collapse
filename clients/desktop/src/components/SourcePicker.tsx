@@ -400,7 +400,8 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.md,
                   padding: `${spacing.md}px ${spacing.md}px`, background: "transparent",
-                  border: "none",
+                  border: "none", outline: "none", userSelect: "none",
+                  WebkitUserSelect: "none",
                   borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
                   width: "100%", position: "relative",
                 }}
@@ -461,7 +462,8 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.md,
                   padding: `${spacing.md}px ${spacing.md}px`, background: "transparent",
-                  border: "none",
+                  border: "none", outline: "none", userSelect: "none",
+                  WebkitUserSelect: "none",
                   borderRadius: radii.md, cursor: "pointer", textAlign: "left" as const,
                   width: "100%", position: "relative",
                   ...(w.isMinimized ? { opacity: 0.5 } : {}),
