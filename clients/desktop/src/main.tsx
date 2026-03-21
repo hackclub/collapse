@@ -99,6 +99,9 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// Disable right click context menu
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>
     <App />

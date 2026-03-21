@@ -18,5 +18,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "@squircle-js/react": "^1.3.0"
   }
 }

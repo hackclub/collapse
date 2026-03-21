@@ -705,6 +705,16 @@ pub fn run() {
                     ],
                 )?;
 
+                let start_timelapse_item = MenuItem::with_id(app, "start_timelapse", "Start Timelapse", true, Some("CmdOrControl+N"))?;
+                let file_menu = Submenu::with_items(
+                    app,
+                    "File",
+                    true,
+                    &[
+                        &start_timelapse_item,
+                    ],
+                )?;
+
                 let edit_menu = Submenu::with_items(
                     app,
                     "Edit",
@@ -737,10 +747,16 @@ pub fn run() {
                 let gh_item = MenuItem::with_id(app, "github", "GitHub Repo", true, None::<&str>)?;
                 let help_menu = Submenu::with_items(app, "Help", true, &[&docs_item, &guide_item, &gh_item])?;
 
-                let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu, &help_menu])?;
+                let menu = Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &window_menu, &help_menu])?;
                 app.set_menu(menu)?;
 
                 app.on_menu_event(move |app_handle, event| {
+                    if event.id().0 == "start_timelapse" {
+                        let _ = app_handle.emit("collapse-navigate", "/add");
+                        if let Some(w) = app_handle.get_webview_window("main") {
+                            let _ = w.set_focus();
+                        }
+                    }
                     if event.id().0 == "docs" {
                         use tauri_plugin_opener::OpenerExt;
                         let _ = app_handle

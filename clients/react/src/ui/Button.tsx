@@ -3,6 +3,8 @@ import { motion } from "motion/react";
 import { colors, radii, fontWeight } from "./theme.js";
 import { Spinner } from "./Spinner.js";
 
+import { Squircle } from "@squircle-js/react";
+
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "success" | "danger" | "warning" | "secondary" | "ghost";
   size?: "sm" | "md" | "lg";
@@ -70,22 +72,23 @@ export function Button({
       }}
       {...(rest as any)}
     >
-      <motion.div
-        variants={{
-          idle: { scale: 1, background: idleBackground, border: idleBorder },
-          hover: { scale: 1, background: hoverBackground, border: hoverBorder },
-          active: { scale: 0.96, background: hoverBackground, border: hoverBorder },
-        }}
-        transition={{ type: "spring", stiffness: 1500, damping: 60 }}
-        style={{
-          position: "absolute",
-          inset: -1,
-          borderRadius: borderRadius ?? radii.md,
-          background: idleBackground,
-          border: idleBorder,
-          transition: "opacity 0.15s, background 0.15s, border-color 0.15s",
-        }}
-      />
+      <Squircle cornerRadius={(borderRadius as number) ?? radii.md} cornerSmoothing={0.7} asChild>
+        <motion.div
+          variants={{
+            idle: { scale: 1, background: idleBackground, border: idleBorder },
+            hover: { scale: 1, background: hoverBackground, border: hoverBorder },
+            active: { scale: 0.96, background: hoverBackground, border: hoverBorder },
+          }}
+          transition={{ type: "spring", stiffness: 1500, damping: 60 }}
+          style={{
+            position: "absolute",
+            inset: -1,
+            background: idleBackground,
+            border: idleBorder,
+            transition: "opacity 0.15s, background 0.15s, border-color 0.15s",
+          }}
+        />
+      </Squircle>
       <span
         style={{
           position: "relative",
