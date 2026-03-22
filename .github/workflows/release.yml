@@ -61,6 +61,8 @@ jobs:
             libxcb-randr0-dev \
             libxcb-shm0-dev \
             libpipewire-0.3-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
             libgbm-dev \
             xdg-utils \
             rpm
