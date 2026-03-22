@@ -4,7 +4,8 @@ export type Route =
   | { page: "gallery" }
   | { page: "add" }
   | { page: "record"; token: string }
-  | { page: "session"; token: string };
+  | { page: "session"; token: string }
+  | { page: "tray" };
 
 function parseHash(hash: string): Route {
   const cleaned = hash.replace(/^#\/?/, "");
@@ -15,6 +16,7 @@ function parseHash(hash: string): Route {
   const token = params.get("token") ?? "";
 
   if (path === "add") return { page: "add" };
+  if (path === "tray") return { page: "tray" };
   if (path === "record" && token) return { page: "record", token };
   if (path === "session" && token) return { page: "session", token };
 
@@ -27,6 +29,8 @@ function routeToHash(route: Route): string {
       return "#/";
     case "add":
       return "#/add";
+    case "tray":
+      return "#/tray";
     case "record":
       return `#/record?token=${route.token}`;
     case "session":

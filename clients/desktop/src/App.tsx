@@ -16,6 +16,7 @@ import { isValidToken, extractToken } from "./utils.js";
 import { PermissionScreen } from "./components/PermissionScreen.js";
 import { RecordPage } from "./components/RecordPage.js";
 import { AddSessionPage } from "./components/AddSessionPage.js";
+import { TrayApp } from "./components/TrayApp.js";
 
 const API_BASE = "https://lookout.hackclub.com";
 
@@ -258,6 +259,10 @@ export function App() {
   }, []);
 
   // Step 2: Route
+  if (route.page === "tray") {
+    return <TrayApp />;
+  }
+
   const content = (() => {
     switch (route.page) {
       case "gallery":

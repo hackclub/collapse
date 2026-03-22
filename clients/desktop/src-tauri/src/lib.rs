@@ -2,9 +2,8 @@ mod capture;
 mod crop;
 mod pipewire;
 mod screencast;
+mod tray;
 
-#[cfg(target_os = "macos")]
-use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFNumber, CFNumberType, CFString, CGRect};
 #[cfg(target_os = "macos")]
@@ -16,12 +15,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
-use std::sync::OnceLock;
+use std::ffi::c_void;
 use std::sync::Mutex;
 #[cfg(target_os = "macos")]
+use std::sync::OnceLock;
+#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
 use tauri::http;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg(target_os = "macos")]
@@ -178,7 +179,8 @@ fn get_cf_dictionary_get_value(cf_dictionary: &CFDictionary, key: &str) -> Optio
 fn dict_i32(dict: &CFDictionary, key: &str) -> Option<i32> {
     let cf_number = get_cf_dictionary_get_value(dict, key)? as *const CFNumber;
     let mut value: i32 = 0;
-    let ok = unsafe { (*cf_number).value(CFNumberType::IntType, &mut value as *mut _ as *mut c_void) };
+    let ok =
+        unsafe { (*cf_number).value(CFNumberType::IntType, &mut value as *mut _ as *mut c_void) };
     if !ok {
         return None;
     }
@@ -252,7 +254,8 @@ fn window_is_capturable(window_id: u32, bounds: CGRect) -> bool {
         && data.as_ref().is_some_and(|bytes| !bytes.is_empty());
 
     if let Ok(mut cache_guard) = cache.lock() {
-        cache_guard.retain(|_, entry| now.duration_since(entry.checked_at) <= CAPTURABLE_WINDOW_CACHE_TTL);
+        cache_guard
+            .retain(|_, entry| now.duration_since(entry.checked_at) <= CAPTURABLE_WINDOW_CACHE_TTL);
         cache_guard.insert(
             window_id,
             CapturableWindowCacheEntry {
@@ -495,7 +498,9 @@ fn is_wayland() -> bool {
 }
 
 #[tauri::command]
-async fn request_screencast(#[allow(unused_variables)] state: State<'_, AppState>) -> Result<Vec<crate::screencast::StreamInfo>, String> {
+async fn request_screencast(
+    #[allow(unused_variables)] state: State<'_, AppState>,
+) -> Result<Vec<crate::screencast::StreamInfo>, String> {
     #[cfg(target_os = "linux")]
     {
         crate::screencast::request_screencast(state).await
@@ -671,7 +676,8 @@ async fn capture_and_upload(
         fd = *guard;
     }
 
-    let screenshot = capture::take_stitched_screenshots(&sources, max_width, max_height, jpeg_quality, fd)?;
+    let screenshot =
+        capture::take_stitched_screenshots(&sources, max_width, max_height, jpeg_quality, fd)?;
     let _ = app.emit(
         "capture-progress",
         format!(
@@ -856,7 +862,14 @@ pub fn run() {
             disable_vibrancy,
             is_wayland,
             request_screencast,
+            tray::show_tray,
+            tray::update_tray_time,
+            tray::hide_tray,
+            tray::tray_action,
+            tray::set_tray_state,
+            tray::get_tray_state,
         ])
+        .manage(tray::TrayStateMutex(std::sync::Mutex::new(tray::TrayState::default())))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {

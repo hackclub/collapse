@@ -25,14 +25,24 @@ pub fn auto_crop_black_borders(mut img: DynamicImage) -> DynamicImage {
     // Iterate over raw bytes in chunks of 4 (R, G, B, A).
     // This is orders of magnitude faster than `get_pixel(x, y)` because it avoids bounds checking.
     for (i, pixel) in raw.chunks_exact(4).enumerate() {
-        if pixel[3] > threshold && (pixel[0] > threshold || pixel[1] > threshold || pixel[2] > threshold) {
+        if pixel[3] > threshold
+            && (pixel[0] > threshold || pixel[1] > threshold || pixel[2] > threshold)
+        {
             let x = (i as u32) % width;
             let y = (i as u32) / width;
-            
-            if x < min_x { min_x = x; }
-            if x > max_x { max_x = x; }
-            if y < min_y { min_y = y; }
-            if y > max_y { max_y = y; }
+
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
         }
     }
 

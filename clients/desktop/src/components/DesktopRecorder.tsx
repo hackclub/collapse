@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, emit } from "@tauri-apps/api/event";
 import {
   useSession,
   useSessionTimer,
@@ -83,6 +85,15 @@ function RecorderPreviewItem({
       )}
     </div>
   );
+}
+
+function formatTimeTray(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  
+  if (h > 0) return `${h}h ${m}m`;
+  if (m === 0) return `< 1m`;
+  return `${m}m`;
 }
 
 export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource, onBack, onViewSession }: DesktopRecorderProps) {
@@ -258,6 +269,78 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     setResumeLoading(false);
   }, [capture, session, isCamera, cameraDeviceId, camera, startCameraAndWait]);
 
+  const isActive = session.status === "active" || session.status === "pending";
+  const isPaused = session.status === "paused";
+
+  // Pin controls to pre-action state during transitions to prevent flashes.
+  let controlMode: "recording" | "paused";
+  if (pauseLoading || ((stopLoading || isPrompting) && isActive)) {
+    controlMode = "recording";
+  } else if (resumeLoading || ((stopLoading || isPrompting) && isPaused)) {
+    controlMode = "paused";
+  } else if (capture.isCapturing) {
+    controlMode = "recording";
+  } else if (isPaused) {
+    controlMode = "paused";
+  } else {
+    controlMode = "recording";
+  }
+
+  const screenshotCount = session.screenshotCount + capture.screenshotCount;
+
+  // Keep a ref of the latest state
+  const trayStateRef = useRef({ displaySeconds, screenshotCount, controlMode });
+  trayStateRef.current = { displaySeconds, screenshotCount, controlMode };
+
+  // Listen for tray requesting initial state (fallback)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("tray-ready", () => {
+      emit("tray-state", trayStateRef.current).catch(console.error);
+    }).then(fn => unlisten = fn);
+    return () => unlisten?.();
+  }, []);
+
+  // Sync state to rust backend (for instant tray loads) AND emit to tray window
+  useEffect(() => {
+    const timeText = formatTimeTray(displaySeconds);
+    const state = { 
+      displaySeconds, 
+      screenshotCount, 
+      controlMode,
+      updatedAt: Date.now()
+    };
+    
+    invoke("show_tray", { timeText }).catch(console.error);
+    invoke("update_tray_time", { timeText, isPaused: controlMode === "paused" }).catch(console.error);
+    invoke("set_tray_state", { state }).catch(console.error);
+    emit("tray-state", state).catch(console.error);
+  }, [displaySeconds, screenshotCount, controlMode]);
+
+  // Hide tray on unmount or session end
+  useEffect(() => {
+    return () => {
+      invoke("hide_tray").catch(console.error);
+    };
+  }, []);
+
+  // Listen to tray actions
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<string>("tray-action", (event) => {
+      if (event.payload === "pause") {
+        handlePause();
+      } else if (event.payload === "resume") {
+        handleResume();
+      } else if (event.payload === "stop") {
+        handleStopClick();
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, [handlePause, handleResume, handleStopClick]);
+
   // Loading/skeleton state
   if (session.status === "loading") {
     return (
@@ -300,25 +383,6 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
       </PageContainer>
     );
   }
-
-  const isActive = session.status === "active" || session.status === "pending";
-  const isPaused = session.status === "paused";
-
-  // Pin controls to pre-action state during transitions to prevent flashes.
-  let controlMode: "recording" | "paused";
-  if (pauseLoading || ((stopLoading || isPrompting) && isActive)) {
-    controlMode = "recording";
-  } else if (resumeLoading || ((stopLoading || isPrompting) && isPaused)) {
-    controlMode = "paused";
-  } else if (capture.isCapturing) {
-    controlMode = "recording";
-  } else if (isPaused) {
-    controlMode = "paused";
-  } else {
-    controlMode = "recording";
-  }
-
-  const screenshotCount = session.screenshotCount + capture.screenshotCount;
 
   return (
     <div style={{
