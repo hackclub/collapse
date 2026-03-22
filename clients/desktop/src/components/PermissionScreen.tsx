@@ -3,7 +3,6 @@ import {
   checkScreenRecordingPermission,
   requestScreenRecordingPermission,
   checkCameraPermission,
-  requestCameraPermission,
 } from "tauri-plugin-macos-permissions-api";
 import { Button, PageContainer, Spinner, colors, spacing, fontSize } from "@collapse/react";
 import { PageLayout } from "./PageLayout.js";
@@ -48,7 +47,17 @@ const PERMISSION_CONFIG: Record<PermissionType, {
     hint: 'After enabling "Collapse" in System Settings > Privacy > Camera, quit and reopen the app. If it still doesn\'t work, remove Collapse from the list entirely, restart the app, and grant permission again.',
     checkingLabel: "Checking camera permission...",
     check: checkCameraPermission,
-    request: requestCameraPermission,
+    // The plugin's requestCameraPermission passes a null completionHandler to
+    // AVCaptureDevice, which silently no-ops. Use getUserMedia instead — it
+    // triggers the real macOS camera permission prompt from WKWebView.
+    request: async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        // User denied or no camera — either way the prompt was shown
+      }
+    },
   },
 };
 
