@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicehash/tauri/refs/tags/tauri-v2.3.1/crates/tauri-utils/schema.json",
   "productName": "Collapse",
   "identifier": "com.hackclub.collapse",
-  "version": "0.0.19",
+  "version": "0.0.21",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -38,6 +38,9 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "nsis", "deb", "appimage", "rpm"],
+    "macOS": {
+      "entitlements": "./Entitlements.plist"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

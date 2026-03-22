@@ -6,7 +6,7 @@ opt-level = 1
 
 [package]
 name = "collapse-desktop"
-version = "0.0.19"
+version = "0.0.21"
 edition = "2021"
 
 [lib]
