@@ -43,8 +43,6 @@ pub struct AppState {
     pub config: Mutex<Option<SessionConfig>>,
     pub cold_start_urls: Mutex<Option<Vec<String>>>,
     #[cfg(target_os = "linux")]
-    pub screencast_session: Mutex<Option<ashpd::desktop::screencast::ScreenCast>>,
-    #[cfg(target_os = "linux")]
     pub pipewire_fd: Mutex<Option<std::os::fd::RawFd>>,
 }
 
@@ -465,6 +463,10 @@ fn enable_vibrancy(window: tauri::Window) -> Result<(), String> {
         use window_vibrancy::apply_mica;
         apply_mica(&window, None).map_err(|e| e.to_string())?;
     }
+    // Prevent unused variable warning on Linux
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = window;
+
     Ok(())
 }
 
@@ -480,6 +482,10 @@ fn disable_vibrancy(window: tauri::Window) -> Result<(), String> {
         use window_vibrancy::clear_mica;
         clear_mica(&window).map_err(|e| e.to_string())?;
     }
+    // Prevent unused variable warning on Linux
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = window;
+
     Ok(())
 }
 
@@ -779,7 +785,7 @@ pub fn run() {
                 #[allow(unused_mut, unused_assignments)]
                 let mut fd = None;
                 #[cfg(target_os = "linux")]
-                if let Some(app_state) = _app_handle.try_state::<AppState>() {
+                if let Some(app_state) = _app_handle.app_handle().try_state::<AppState>() {
                     if let Ok(guard) = app_state.pipewire_fd.lock() {
                         fd = *guard;
                     }
@@ -834,8 +840,6 @@ pub fn run() {
         .manage(AppState {
             config: Mutex::new(None),
             cold_start_urls: Mutex::new(None),
-            #[cfg(target_os = "linux")]
-            screencast_session: Mutex::new(None),
             #[cfg(target_os = "linux")]
             pipewire_fd: Mutex::new(None),
         })

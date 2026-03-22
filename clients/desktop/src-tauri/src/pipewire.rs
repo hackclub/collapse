@@ -4,7 +4,7 @@ pub fn capture_pipewire_node(
     fd: std::os::fd::RawFd,
 ) -> Result<image::DynamicImage, String> {
     use gstreamer::prelude::*;
-    
+
     gstreamer::init().map_err(|e| format!("Failed to init gstreamer: {}", e))?;
 
     let pipeline_str = format!(
@@ -12,7 +12,7 @@ pub fn capture_pipewire_node(
         fd, node_id
     );
 
-    let pipeline = gstreamer::parse_launch(&pipeline_str)
+    let pipeline = gstreamer::parse::launch(&pipeline_str)
         .map_err(|e| format!("Failed to create pipeline: {}", e))?
         .downcast::<gstreamer::Pipeline>()
         .map_err(|_| "Expected a pipeline".to_string())?;
@@ -36,14 +36,26 @@ pub fn capture_pipewire_node(
         .set_state(gstreamer::State::Null)
         .map_err(|e| format!("Failed to stop pipeline: {}", e))?;
 
-    let buffer = sample.buffer().ok_or_else(|| "Sample has no buffer".to_string())?;
-    let caps = sample.caps().ok_or_else(|| "Sample has no caps".to_string())?;
-    let structure = caps.structure(0).ok_or_else(|| "Caps have no structure".to_string())?;
+    let buffer = sample
+        .buffer()
+        .ok_or_else(|| "Sample has no buffer".to_string())?;
+    let caps = sample
+        .caps()
+        .ok_or_else(|| "Sample has no caps".to_string())?;
+    let structure = caps
+        .structure(0)
+        .ok_or_else(|| "Caps have no structure".to_string())?;
 
-    let width = structure.get::<i32>("width").map_err(|_| "No width".to_string())?;
-    let height = structure.get::<i32>("height").map_err(|_| "No height".to_string())?;
+    let width = structure
+        .get::<i32>("width")
+        .map_err(|_| "No width".to_string())?;
+    let height = structure
+        .get::<i32>("height")
+        .map_err(|_| "No height".to_string())?;
 
-    let map = buffer.map_readable().map_err(|_| "Failed to map buffer".to_string())?;
+    let map = buffer
+        .map_readable()
+        .map_err(|_| "Failed to map buffer".to_string())?;
 
     let img = image::RgbImage::from_raw(width as u32, height as u32, map.as_slice().to_vec())
         .ok_or_else(|| "Failed to create image from raw bytes".to_string())?;
