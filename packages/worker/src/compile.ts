@@ -200,20 +200,62 @@ export async function compileTimelapse(sessionId: string): Promise<{
         .where(eq(schema.screenshots.id, id));
     }
 
-    // Step 2: Download sampled screenshots from R2
+    // Step 2: Download sampled screenshots from R2 (worker pool)
     const total = sampledScreenshots.rows.length;
-    for (let i = 0; i < total; i++) {
-      const ss = sampledScreenshots.rows[i];
-      const response = await r2Client.send(
-        new GetObjectCommand({ Bucket: R2_BUCKET, Key: ss.r2_key }),
+    const DOWNLOAD_CONCURRENCY = 10;
+    const downloaded: boolean[] = new Array(total).fill(false);
+    {
+      let next = 0;
+      const worker = async () => {
+        while (next < total) {
+          const i = next++;
+          const ss = sampledScreenshots.rows[i];
+          const filePath = path.join(tmpDir, `dl_${i}.jpg`);
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const response = await r2Client.send(
+                new GetObjectCommand({ Bucket: R2_BUCKET, Key: ss.r2_key }),
+              );
+              const body = await response.Body!.transformToByteArray();
+              await fs.writeFile(filePath, body);
+              downloaded[i] = true;
+              break;
+            } catch {
+              if (attempt === 2) {
+                console.warn(
+                  `Skipping frame ${i + 1}: download failed after 3 attempts (${ss.r2_key})`,
+                );
+              }
+            }
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, total) }, worker),
       );
-      const body = await response.Body!.transformToByteArray();
-      const filePath = path.join(
-        tmpDir,
-        `${String(i + 1).padStart(5, "0")}.jpg`,
-      );
-      await fs.writeFile(filePath, body);
     }
+
+    // Renumber successfully downloaded frames sequentially for ffmpeg
+    const failed = downloaded.filter((d) => !d).length;
+    if (failed > 5) {
+      throw new Error(
+        `Too many failed frame downloads: ${failed}/${total} failed`,
+      );
+    }
+    if (failed > 0) {
+      console.warn(`${failed}/${total} frames failed to download, continuing`);
+    }
+    let seq = 1;
+    for (let i = 0; i < total; i++) {
+      if (downloaded[i]) {
+        await fs.rename(
+          path.join(tmpDir, `dl_${i}.jpg`),
+          path.join(tmpDir, `${String(seq).padStart(5, "0")}.jpg`),
+        );
+        seq++;
+      }
+    }
+    const actualFrames = seq - 1;
 
     // Step 3: Run ffmpeg — MP4 and WebM in parallel
     const mp4Path = path.join(tmpDir, "timelapse.mp4");
@@ -235,9 +277,9 @@ export async function compileTimelapse(sessionId: string): Promise<{
             "-c:v",
             "libx264",
             "-preset",
-            "medium",
+            "fast",
             "-crf",
-            "23",
+            "28",
             "-r",
             "30",
             "-pix_fmt",
@@ -284,8 +326,8 @@ export async function compileTimelapse(sessionId: string): Promise<{
     }
 
     // Step 4: Verify both outputs
-    const mp4Size = await verifyVideo(mp4Path, total, 30, "MP4");
-    const webmSize = await verifyVideo(webmPath, total, 30, "WebM");
+    const mp4Size = await verifyVideo(mp4Path, actualFrames, 30, "MP4");
+    const webmSize = await verifyVideo(webmPath, actualFrames, 30, "WebM");
 
     // Step 4.5: Extract thumbnail from first frame
     const thumbnailPath = path.join(tmpDir, "thumbnail.jpg");
