@@ -112,6 +112,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract tarball from deb for Arch/Pacman
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "clients/desktop/src-tauri/target/release/bundle/deb" ]; then
+            cd clients/desktop/src-tauri/target/release/bundle/deb
+            for deb in *.deb; do
+              if [ -f "$deb" ]; then
+                ar x "$deb" data.tar.xz 2>/dev/null || ar x "$deb" data.tar.gz 2>/dev/null
+                if [ -f "data.tar.xz" ]; then
+                  mv data.tar.xz "../${deb%.deb}.tar.xz"
+                elif [ -f "data.tar.gz" ]; then
+                  mv data.tar.gz "../${deb%.deb}.tar.gz"
+                fi
+              fi
+            done
+          fi
+
       - name: Sign Windows binaries with Trusted Signing
         if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows' && !contains(matrix.args, 'aarch64')
         uses: azure/trusted-signing-action@v0.5.1
@@ -162,6 +179,8 @@ jobs:
             clients/desktop/src-tauri/target/release/bundle/**/*.exe
             clients/desktop/src-tauri/target/*/release/bundle/**/*.msi
             clients/desktop/src-tauri/target/*/release/bundle/**/*.exe
+            clients/desktop/src-tauri/target/release/bundle/**/*.tar.gz
+            clients/desktop/src-tauri/target/release/bundle/**/*.tar.xz
 
   release:
     needs: build
@@ -194,7 +213,9 @@ jobs:
             -name "*.deb" -o \
             -name "*.rpm" -o \
             -name "*.msi" -o \
-            -name "*.exe" \
+            -name "*.exe" -o \
+            -name "*.tar.gz" -o \
+            -name "*.tar.xz" \
           \) | while read -r file; do
             FILENAME=$(basename "$file")
             # Determine OS label from artifact directory
