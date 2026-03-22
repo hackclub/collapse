@@ -148,27 +148,24 @@ jobs:
                 
                 SIZE=$(du -sb . | awk '{print $1}')
                 
-                cat << EOF > .PKGINFO
-                pkgname = collapse-bin
-                pkgver = ${PKGVER}-1
-                pkgdesc = Collapse desktop app
-                url = https://github.com/anscg/collapse
-                builddate = $(date +%s)
-                packager = GitHub Actions
-                size = ${SIZE}
-                arch = ${ARCH}
-                license = MIT
-                depend = cairo
-                depend = desktop-file-utils
-                depend = gdk-pixbuf2
-                depend = glib2
-                depend = gtk3
-                depend = hicolor-icon-theme
-                depend = libsoup
-                depend = pango
-                depend = webkit2gtk-4.1
-                EOF
-                sed -i 's/^ *//' .PKGINFO
+                echo "pkgname = collapse-bin" > .PKGINFO
+                echo "pkgver = ${PKGVER}-1" >> .PKGINFO
+                echo "pkgdesc = Collapse desktop app" >> .PKGINFO
+                echo "url = https://github.com/anscg/collapse" >> .PKGINFO
+                echo "builddate = $(date +%s)" >> .PKGINFO
+                echo "packager = GitHub Actions" >> .PKGINFO
+                echo "size = ${SIZE}" >> .PKGINFO
+                echo "arch = ${ARCH}" >> .PKGINFO
+                echo "license = MIT" >> .PKGINFO
+                echo "depend = cairo" >> .PKGINFO
+                echo "depend = desktop-file-utils" >> .PKGINFO
+                echo "depend = gdk-pixbuf2" >> .PKGINFO
+                echo "depend = glib2" >> .PKGINFO
+                echo "depend = gtk3" >> .PKGINFO
+                echo "depend = hicolor-icon-theme" >> .PKGINFO
+                echo "depend = libsoup" >> .PKGINFO
+                echo "depend = pango" >> .PKGINFO
+                echo "depend = webkit2gtk-4.1" >> .PKGINFO
                 
                 tar --zstd -cf "../collapse_${PKGVER}_${ARCH}.pkg.tar.zst" .PKGINFO *
                 cd ..
