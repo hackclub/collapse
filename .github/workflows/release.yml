@@ -65,7 +65,8 @@ jobs:
             libgstreamer-plugins-base1.0-dev \
             libgbm-dev \
             xdg-utils \
-            rpm
+            rpm \
+            zstd
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -112,19 +113,66 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract tarball from deb for Arch/Pacman
+      - name: Build Arch Linux package (.pkg.tar.zst)
         if: runner.os == 'Linux'
         run: |
           if [ -d "clients/desktop/src-tauri/target/release/bundle/deb" ]; then
             cd clients/desktop/src-tauri/target/release/bundle/deb
             for deb in *.deb; do
               if [ -f "$deb" ]; then
-                ar x "$deb" data.tar.xz 2>/dev/null || ar x "$deb" data.tar.gz 2>/dev/null
-                if [ -f "data.tar.xz" ]; then
-                  mv data.tar.xz "../${deb%.deb}.tar.xz"
-                elif [ -f "data.tar.gz" ]; then
-                  mv data.tar.gz "../${deb%.deb}.tar.gz"
+                echo "Building Arch package from $deb"
+                DEB_FILE=$(basename "$deb")
+                
+                # Extract version from deb file name (e.g., collapse_0.0.22_amd64.deb -> 0.0.22)
+                PKGVER=$(echo "$DEB_FILE" | grep -oP '([0-9]+\.[0-9]+\.[0-9]+)' | head -1)
+                PKGVER=${PKGVER:-1.0.0}
+                
+                # Determine architecture
+                if [[ "$DEB_FILE" == *"arm64"* || "$DEB_FILE" == *"aarch64"* ]]; then
+                  ARCH="aarch64"
+                else
+                  ARCH="x86_64"
                 fi
+                
+                mkdir -p arch_pkg
+                cd arch_pkg
+                ar x "../$DEB_FILE"
+                
+                if [ -f "data.tar.xz" ]; then
+                  tar -xf data.tar.xz
+                elif [ -f "data.tar.gz" ]; then
+                  tar -xf data.tar.gz
+                fi
+                
+                rm -f data.tar.* control.tar.* debian-binary
+                
+                SIZE=$(du -sb . | awk '{print $1}')
+                
+                cat << EOF > .PKGINFO
+                pkgname = collapse-bin
+                pkgver = ${PKGVER}-1
+                pkgdesc = Collapse desktop app
+                url = https://github.com/anscg/collapse
+                builddate = $(date +%s)
+                packager = GitHub Actions
+                size = ${SIZE}
+                arch = ${ARCH}
+                license = MIT
+                depend = cairo
+                depend = desktop-file-utils
+                depend = gdk-pixbuf2
+                depend = glib2
+                depend = gtk3
+                depend = hicolor-icon-theme
+                depend = libsoup
+                depend = pango
+                depend = webkit2gtk-4.1
+                EOF
+                sed -i 's/^ *//' .PKGINFO
+                
+                tar --zstd -cf "../collapse_${PKGVER}_${ARCH}.pkg.tar.zst" .PKGINFO *
+                cd ..
+                rm -rf arch_pkg
               fi
             done
           fi
@@ -179,8 +227,7 @@ jobs:
             clients/desktop/src-tauri/target/release/bundle/**/*.exe
             clients/desktop/src-tauri/target/*/release/bundle/**/*.msi
             clients/desktop/src-tauri/target/*/release/bundle/**/*.exe
-            clients/desktop/src-tauri/target/release/bundle/**/*.tar.gz
-            clients/desktop/src-tauri/target/release/bundle/**/*.tar.xz
+            clients/desktop/src-tauri/target/release/bundle/**/*.pkg.tar.zst
 
   release:
     needs: build
@@ -214,8 +261,7 @@ jobs:
             -name "*.rpm" -o \
             -name "*.msi" -o \
             -name "*.exe" -o \
-            -name "*.tar.gz" -o \
-            -name "*.tar.xz" \
+            -name "*.pkg.tar.zst" \
           \) | while read -r file; do
             FILENAME=$(basename "$file")
             # Determine OS label from artifact directory
