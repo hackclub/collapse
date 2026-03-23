@@ -115,7 +115,11 @@ export function TrayApp() {
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: `${spacing.sm}px ${spacing.md}px`,
       width: "100%", height: "100%", boxSizing: "border-box",
-      fontFamily: "system-ui, -apple-system, sans-serif"
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      // Windows needs explicit borders/background because it lacks macOS window-vibrancy radii
+      background: navigator.userAgent.includes("Mac") ? "transparent" : colors.bg.surface,
+      borderRadius: navigator.userAgent.includes("Mac") ? 0 : radii.md,
+      border: navigator.userAgent.includes("Mac") ? "none" : `1px solid ${colors.border.default}`,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>

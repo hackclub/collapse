@@ -120,10 +120,27 @@ fn position_and_show_window(
     let tray_logical_size = tray_rect.size.to_logical::<f64>(scale_factor);
 
     let window_logical_size = window_size.to_logical::<f64>(scale_factor);
+    let monitor_logical_size = monitor.size().to_logical::<f64>(scale_factor);
+    let monitor_logical_pos = monitor.position().to_logical::<f64>(scale_factor);
 
-    let x =
+    let mut x =
         tray_logical_pos.x + (tray_logical_size.width / 2.0) - (window_logical_size.width / 2.0);
-    let y = tray_logical_pos.y + tray_logical_size.height;
+
+    // Default to below the tray icon
+    let mut y = tray_logical_pos.y + tray_logical_size.height;
+
+    // Windows taskbar is usually at the bottom. If the popup goes off the bottom of the screen, place it above the icon!
+    if y + window_logical_size.height > monitor_logical_pos.y + monitor_logical_size.height {
+        y = tray_logical_pos.y - window_logical_size.height;
+    }
+
+    // Prevent rendering off-screen horizontally
+    if x + window_logical_size.width > monitor_logical_pos.x + monitor_logical_size.width {
+        x = monitor_logical_pos.x + monitor_logical_size.width - window_logical_size.width;
+    }
+    if x < monitor_logical_pos.x {
+        x = monitor_logical_pos.x;
+    }
 
     window.set_position(LogicalPosition::new(x, y))?;
     window.show()?;
