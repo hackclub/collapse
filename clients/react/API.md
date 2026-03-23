@@ -1,6 +1,6 @@
 # @lookout/react — React SDK Documentation
 
-**Package:** `@lookout/react` v0.0.15
+**Package:** `@lookout/react` v0.1.0
 **Peer Dependencies:** React 18+ or 19+
 **Exports:** ESM + CJS with TypeScript declarations
 
@@ -13,7 +13,7 @@ import { LookoutProvider, LookoutRecorder } from "@lookout/react";
 
 function App() {
   return (
-    <LookoutProvider token="your-64-char-hex-token" apiBaseUrl="https://api.example.com">
+    <LookoutProvider token="your-64-char-hex-token" apiBaseUrl="https://lookout.hackclub.com">
       <LookoutRecorder />
     </LookoutProvider>
   );
@@ -41,7 +41,7 @@ function MyRecorder() {
 
 function App() {
   return (
-    <LookoutProvider token="..." apiBaseUrl="https://api.example.com">
+    <LookoutProvider token="..." apiBaseUrl="https://lookout.hackclub.com">
       <MyRecorder />
     </LookoutProvider>
   );
@@ -57,7 +57,7 @@ function App() {
   return (
     <LookoutProvider
       token="your-64-char-hex-token"
-      apiBaseUrl="https://api.example.com"
+      apiBaseUrl="https://lookout.hackclub.com"
       capture={{ mode: "camera" }}
     >
       <LookoutRecorder />
@@ -77,7 +77,7 @@ Context provider that configures the API client and settings for all child hooks
 ```tsx
 <LookoutProvider
   token="..."
-  apiBaseUrl="https://api.example.com"
+  apiBaseUrl="https://lookout.hackclub.com"
   capture={{ intervalMs: 30000, jpegQuality: 0.9 }}
   autoStart
 >
@@ -397,7 +397,7 @@ Fetches multiple sessions for gallery display via the batch endpoint. Auto-refre
 
 ```ts
 const { sessions, loading, error, refresh } = useGallery({
-  apiBaseUrl: "https://api.example.com",
+  apiBaseUrl: "https://lookout.hackclub.com",
   tokens: ["token1", "token2"],
 });
 ```
@@ -673,7 +673,7 @@ Full session detail view with video player, stats, and compilation polling. Stan
 ```tsx
 <SessionDetail
   token="..."
-  apiBaseUrl="https://api.example.com"
+  apiBaseUrl="https://lookout.hackclub.com"
   onBack={() => navigate({ page: "gallery" })}
   onArchive={() => store.archiveToken(token)}
 />
@@ -740,7 +740,7 @@ Standalone API client with no React dependency. Useful for server-side or non-Re
 import { createLookoutClient } from "@lookout/react";
 
 const client = createLookoutClient({
-  baseUrl: "https://api.example.com",
+  baseUrl: "https://lookout.hackclub.com",
   token: "your-token",
 });
 
