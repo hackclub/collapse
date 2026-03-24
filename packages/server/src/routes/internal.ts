@@ -96,6 +96,37 @@ export async function internalRoutes(app: FastifyInstance) {
     },
   );
 
+  // Lookup session by token
+  app.get<{
+    Params: { token: string };
+  }>(
+    "/api/internal/sessions/by-token/:token",
+    {
+      schema: {
+        params: {
+          type: "object" as const,
+          properties: {
+            token: { type: "string" as const, minLength: 64, maxLength: 64 },
+          },
+          required: ["token"] as const,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params;
+
+      const session = await db.query.sessions.findFirst({
+        where: eq(schema.sessions.token, token),
+      });
+
+      if (!session) {
+        return reply.code(404).send({ error: "Session not found" });
+      }
+
+      return { sessionId: session.id };
+    },
+  );
+
   // Force-stop a session
   app.post<{
     Params: { sessionId: string };

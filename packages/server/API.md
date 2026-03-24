@@ -505,6 +505,31 @@ Returns full session details including internal fields.
 
 ---
 
+### Lookup Session by Token (Admin)
+
+```
+GET /api/internal/sessions/by-token/:token
+```
+
+Returns the session ID for a given session token.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `token` | string | 64-char hex session token |
+
+**Response `200 OK`:**
+```json
+{
+  "sessionId": "uuid"
+}
+```
+
+**Errors:**
+- `404` — Session not found
+
+---
+
 ### Force-Stop Session (Admin)
 
 ```
