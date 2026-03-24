@@ -96,14 +96,46 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     return camera.captureFrame(cameraVideoRef.current);
   }, [camera]);
 
+  // When the capture loop discovers the server stopped the session (e.g. cron
+  // auto-stop), sync the session hook so the UI navigates correctly.
+  const handleSessionTerminated = useCallback((status: string) => {
+    console.warn(`[session] capture loop detected terminal status: ${status}`);
+    session.syncStatus();
+  }, [session]);
+
   // Pass camera captureFrame to the native capture hook for camera sources
   const capture = useNativeCapture(
     token,
     API_BASE,
     source,
     isCamera ? cameraFrameCapture : undefined,
+    handleSessionTerminated,
   );
 
+
+  // Stale capture detection — warn if no successful capture for 3+ minutes
+  // while the app is visible (ignore sleep/background since that's expected).
+  const STALE_CAPTURE_MS = 3 * 60_000;
+  const [captureStale, setCaptureStale] = useState(false);
+  useEffect(() => {
+    if (!capture.isCapturing || !capture.lastCaptureAt) {
+      setCaptureStale(false);
+      return;
+    }
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      const age = Date.now() - capture.lastCaptureAt!;
+      setCaptureStale(age > STALE_CAPTURE_MS);
+    };
+    check();
+    const id = setInterval(check, 10_000);
+    const onVisChange = () => check();
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisChange);
+    };
+  }, [capture.isCapturing, capture.lastCaptureAt]);
 
   const displaySeconds = useSessionTimer(
     capture.trackedSeconds || session.trackedSeconds,
@@ -413,6 +445,20 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
           ))
         )}
       </div>
+
+      {captureStale && !capture.error && (
+        <div style={{
+          padding: `${spacing.sm}px ${spacing.md}px`,
+          background: colors.status.warning + "1a",
+          border: `1px solid ${colors.status.warning}`,
+          borderRadius: radii.md,
+          marginBottom: spacing.md,
+          fontSize: fontSize.sm,
+          color: colors.status.warning,
+        }}>
+          Screenshots haven't been captured in a while. Your recording may not be saving.
+        </div>
+      )}
 
       {capture.error && (
         <ErrorDisplay variant="banner" error={capture.error} onCopy={() => navigator.clipboard.writeText(getReport())} />

@@ -554,7 +554,11 @@ async fn upload_and_confirm(
 
     // Step 1: Get presigned URL from server
     let _ = app.emit("capture-progress", "getting upload url from server...");
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
     let url_response = client
         .get(format!(
             "{}/api/sessions/{}/upload-url",

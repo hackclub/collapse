@@ -17,12 +17,21 @@ export function useSessionTimer(
   // Base value the RAF tick counts from. Ratchets up so display never jumps backward.
   const baseRef = useRef(serverTrackedSeconds);
 
-  // Effect 1: Ratchet baseRef against server value.
-  // No elapsed interpolation here — baseRef already holds the snapshotted display
-  // value from Effect 2's cleanup, so Math.max(base, server) is sufficient.
-  // Interpolation is Effect 2's job (RAF tick).
+  // Effect 1: Sync baseRef with server value.
+  // Normally ratchets forward (never backward) for smooth display.
+  // But if the display has drifted more than 3 minutes ahead of the server
+  // (e.g. captures were failing while the timer kept interpolating),
+  // snap back to the server value to correct the drift.
+  const DRIFT_CORRECTION_THRESHOLD = 180; // 3 minutes
   useEffect(() => {
-    const newBase = Math.max(baseRef.current, serverTrackedSeconds);
+    const drift = baseRef.current - serverTrackedSeconds;
+    let newBase: number;
+    if (drift > DRIFT_CORRECTION_THRESHOLD) {
+      // Display is way ahead of reality — snap to server value
+      newBase = serverTrackedSeconds;
+    } else {
+      newBase = Math.max(baseRef.current, serverTrackedSeconds);
+    }
     if (newBase !== baseRef.current) {
       baseRef.current = newBase;
       setDisplaySeconds(newBase);
