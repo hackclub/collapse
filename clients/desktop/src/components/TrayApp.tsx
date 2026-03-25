@@ -173,12 +173,12 @@ export function TrayApp() {
         padding: `${spacing.sm}px ${spacing.md}px`,
         width: "100%", height: "100%", boxSizing: "border-box",
         fontFamily: "system-ui, -apple-system, sans-serif",
-        backgroundColor: isWindows ? "#000000" : "transparent",
-        borderRadius: 16,
-        border: isWindows ? `1px solid ${colors.border.default}` : "none",
+        backgroundColor: isWindows ? "rgba(26, 26, 26, 0.8)" : "transparent",
+        borderRadius: isWindows ? 0 : 16,
+        border: "none",
         overflow: "hidden", // Ensure content doesn't bleed past the rounded corners
         /* Explicitly add a border-radius here that matches cornerRadius */
-        WebkitBorderRadius: "16px",
+        WebkitBorderRadius: isWindows ? 0 : 16,
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
