@@ -46,6 +46,14 @@ async function fetchSessionStatus(token: string): Promise<string | null> {
 }
 
 export function App() {
+  const isTray = window.location.hash.includes("tray");
+  if (isTray) {
+    return <TrayApp />;
+  }
+  return <MainWindowApp />;
+}
+
+function MainWindowApp() {
   const isMacOS = navigator.userAgent.includes("Mac");
   const [screenPermGranted, setScreenPermGranted] = useState(!isMacOS);
   const [cameraPermGranted, setCameraPermGranted] = useState(!isMacOS);
@@ -224,18 +232,6 @@ export function App() {
 
   // Enable vibrancy globally for the app
   useEffect(() => {
-    // Wait to determine if this is the tray window
-    if (window.location.hash.includes("tray")) {
-      console.log("[vibrancy] skipped on tray window");
-      // Even though we skip vibrancy, we MUST ensure the background is transparent
-      // so the native glass effect applied in TrayApp.tsx can be seen.
-      document.documentElement.style.background = "transparent";
-      document.body.style.background = "transparent";
-      const root = document.getElementById("root");
-      if (root) root.style.background = "transparent";
-      return;
-    }
-
     const html = document.documentElement;
     const body = document.body;
     const root = document.getElementById("root");
@@ -276,10 +272,6 @@ export function App() {
   }, []);
 
   // Step 2: Route
-  if (route.page === "tray") {
-    return <TrayApp />;
-  }
-
   const content = (() => {
     switch (route.page) {
       case "gallery":
