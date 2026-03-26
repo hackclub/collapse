@@ -45,8 +45,11 @@ const CAPTURABLE_WINDOW_CACHE_TTL: Duration = Duration::from_secs(15);
 pub struct AppState {
     pub config: Mutex<Option<SessionConfig>>,
     pub cold_start_urls: Mutex<Option<Vec<String>>>,
+    /// Maps PipeWire node_id -> the RawFd of the screencast session that owns it.
+    /// This allows streams from different portal sessions to coexist (e.g. when
+    /// the user incrementally adds sources via the "+" button).
     #[cfg(target_os = "linux")]
-    pub pipewire_fd: Mutex<Option<std::os::fd::RawFd>>,
+    pub pipewire_fds: Mutex<std::collections::HashMap<u32, std::os::fd::RawFd>>,
     /// App names whose windows should be blacked out in monitor captures.
     pub blacklisted_apps: Mutex<Vec<String>>,
 }
@@ -702,6 +705,20 @@ async fn request_screencast(
     }
 }
 
+#[tauri::command]
+async fn add_screencast(
+    #[allow(unused_variables)] state: State<'_, AppState>,
+) -> Result<Vec<crate::screencast::StreamInfo>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::screencast::add_screencast(state).await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("Screencast portal is only supported on Linux".into())
+    }
+}
+
 /// Initialize the session config so Rust knows where the server is.
 #[tauri::command]
 fn configure(
@@ -727,12 +744,12 @@ fn take_screenshot(
     #[allow(unused_variables)] state: State<'_, AppState>,
 ) -> Result<CaptureResult, String> {
     #[allow(unused_mut, unused_assignments)]
-    let mut fd = None;
+    let mut pipewire_fds = std::collections::HashMap::new();
     #[cfg(target_os = "linux")]
-    if let Ok(guard) = state.pipewire_fd.lock() {
-        fd = *guard;
+    if let Ok(guard) = state.pipewire_fds.lock() {
+        pipewire_fds = guard.clone();
     }
-    capture::take_screenshot(source, max_width, max_height, jpeg_quality, fd)
+    capture::take_screenshot(source, max_width, max_height, jpeg_quality, &pipewire_fds)
 }
 
 /// Shared upload-and-confirm pipeline: get presigned URL, PUT to R2, POST
@@ -871,10 +888,10 @@ async fn capture_and_upload(
     // Native screenshot
     let _ = app.emit("capture-progress", "capturing screen...");
     #[allow(unused_mut, unused_assignments)]
-    let mut fd = None;
+    let mut pipewire_fds = std::collections::HashMap::new();
     #[cfg(target_os = "linux")]
-    if let Ok(guard) = state.pipewire_fd.lock() {
-        fd = *guard;
+    if let Ok(guard) = state.pipewire_fds.lock() {
+        pipewire_fds = guard.clone();
     }
 
     let screenshot = capture::take_stitched_screenshots_with_blacklist(
@@ -882,7 +899,7 @@ async fn capture_and_upload(
         max_width,
         max_height,
         jpeg_quality,
-        fd,
+        &pipewire_fds,
         &blacklisted,
     )?;
     let _ = app.emit(
@@ -1009,11 +1026,11 @@ pub fn run() {
                 }
 
                 #[allow(unused_mut, unused_assignments)]
-                let mut fd = None;
+                let mut pipewire_fds = std::collections::HashMap::new();
                 #[cfg(target_os = "linux")]
                 if let Some(app_state) = app_handle.try_state::<AppState>() {
-                    if let Ok(guard) = app_state.pipewire_fd.lock() {
-                        fd = *guard;
+                    if let Ok(guard) = app_state.pipewire_fds.lock() {
+                        pipewire_fds = guard.clone();
                     }
                 }
 
@@ -1023,7 +1040,7 @@ pub fn run() {
                     .and_then(|s| s.blacklisted_apps.lock().ok().map(|g| g.clone()))
                     .unwrap_or_default();
 
-                match crate::capture::take_screenshot_raw_with_blacklist(source, max_width, max_height, jpeg_quality, fd, &blacklisted) {
+                match crate::capture::take_screenshot_raw_with_blacklist(source, max_width, max_height, jpeg_quality, &pipewire_fds, &blacklisted) {
                     Ok(res) => responder.respond(
                         http::Response::builder()
                             .header("Content-Type", "image/jpeg")
@@ -1075,7 +1092,7 @@ pub fn run() {
             config: Mutex::new(None),
             cold_start_urls: Mutex::new(None),
             #[cfg(target_os = "linux")]
-            pipewire_fd: Mutex::new(None),
+            pipewire_fds: Mutex::new(std::collections::HashMap::new()),
             blacklisted_apps: Mutex::new(Vec::new()),
         })
         .invoke_handler(tauri::generate_handler![
@@ -1089,6 +1106,7 @@ pub fn run() {
             disable_vibrancy,
             is_wayland,
             request_screencast,
+            add_screencast,
             set_blacklisted_apps,
             get_blacklisted_apps,
             list_running_apps,
