@@ -304,6 +304,23 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
     }
   };
 
+  const handleAddToCast = async () => {
+    try {
+      const streams = await invoke<{ node_id: number }[]>("add_screencast");
+      if (streams && streams.length > 0) {
+        setSelected(prev => {
+          const newSources = streams
+            .map(s => ({ type: "pipewire" as const, id: s.node_id }))
+            .filter(ns => !prev.some(p => sourcesEqual(p, ns)));
+          return [...prev, ...newSources];
+        });
+      }
+    } catch (e) {
+      console.error("Failed to add screencast", e);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   if (error) {
     return (
       <div style={{
@@ -546,9 +563,20 @@ export function SourcePicker({ onSelect, submitLabel = "Start Capture" }: Source
                 </div>
               )}
 
-              <Button variant="secondary" size="md" onClick={handleAddCast}>
-                {selected.some(s => s.type === "pipewire") ? "Select new sets of windows" : "+ Add new Screen/Window"}
-              </Button>
+              {selected.some(s => s.type === "pipewire") ? (
+                <div style={{ display: "flex", gap: spacing.xs, width: "100%" }}>
+                  <Button variant="secondary" size="md" onClick={handleAddCast} style={{ flex: 1 }}>
+                    Select new sets of windows
+                  </Button>
+                  <Button variant="secondary" size="md" onClick={handleAddToCast} style={{ width: 40, padding: 0, flexShrink: 0 }}>
+                    +
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="secondary" size="md" onClick={handleAddCast}>
+                  + Add new Screen/Window
+                </Button>
+              )}
             </div>
           )}
 
