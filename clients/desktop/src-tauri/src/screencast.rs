@@ -5,10 +5,9 @@ pub struct StreamInfo {
     pub node_id: u32,
 }
 
+/// Helper: run the XDG screencast portal flow and return (streams, raw_fd).
 #[cfg(target_os = "linux")]
-pub async fn request_screencast(
-    state: tauri::State<'_, crate::AppState>,
-) -> Result<Vec<StreamInfo>, String> {
+async fn portal_select_sources() -> Result<(Vec<StreamInfo>, std::os::fd::RawFd), String> {
     use ashpd::desktop::screencast::{CursorMode, Screencast, SourceType};
     use ashpd::desktop::PersistMode;
     use ashpd::WindowIdentifier;
@@ -59,11 +58,41 @@ pub async fn request_screencast(
         });
     }
 
-    // Save the fd into AppState so we can use it in capture.rs
-    // We intentionally don't store `session` because zbus connection is cached
-    // and the screencast portal won't close until the D-Bus connection drops (app exit)
-    if let Ok(mut fd_guard) = state.pipewire_fd.lock() {
-        *fd_guard = Some(fd.into_raw_fd());
+    Ok((streams, fd.into_raw_fd()))
+}
+
+/// Replace all existing screencast sources with a fresh portal session.
+#[cfg(target_os = "linux")]
+pub async fn request_screencast(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<StreamInfo>, String> {
+    let (streams, raw_fd) = portal_select_sources().await?;
+
+    // Replace all existing fds with the new session's streams
+    if let Ok(mut fds) = state.pipewire_fds.lock() {
+        fds.clear();
+        for s in &streams {
+            fds.insert(s.node_id, raw_fd);
+        }
+    }
+
+    Ok(streams)
+}
+
+/// Add sources from a new portal session to the existing set (does not remove
+/// previously selected streams). This lets users incrementally build up their
+/// source list even on DEs where the portal dialog doesn't support multi-select.
+#[cfg(target_os = "linux")]
+pub async fn add_screencast(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<StreamInfo>, String> {
+    let (streams, raw_fd) = portal_select_sources().await?;
+
+    // Append — keep existing fds, add the new ones
+    if let Ok(mut fds) = state.pipewire_fds.lock() {
+        for s in &streams {
+            fds.insert(s.node_id, raw_fd);
+        }
     }
 
     Ok(streams)

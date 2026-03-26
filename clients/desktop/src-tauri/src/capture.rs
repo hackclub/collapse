@@ -132,7 +132,7 @@ fn get_monitor_screen_bounds(monitor_id: u32) -> Option<(f64, f64, f64, f64)> {
 
 fn capture_to_dynamic_image(
     source: &CaptureSource,
-    #[allow(unused_variables)] pipewire_fd: Option<i32>,
+    #[allow(unused_variables)] pipewire_fds: &std::collections::HashMap<u32, i32>,
 ) -> Result<DynamicImage, String> {
     let img = match source {
         CaptureSource::Monitor { id } => {
@@ -166,8 +166,11 @@ fn capture_to_dynamic_image(
         CaptureSource::PipeWire { id } => {
             #[cfg(target_os = "linux")]
             {
-                let fd = pipewire_fd.ok_or_else(|| {
-                    "PipeWire fd not provided. Did you request screencast first?".to_string()
+                let fd = pipewire_fds.get(id).copied().ok_or_else(|| {
+                    format!(
+                        "PipeWire fd not found for node {}. Did you request screencast first?",
+                        id
+                    )
                 })?;
                 let img = crate::pipewire::capture_pipewire_node(*id, fd)?;
                 return Ok(crate::crop::auto_crop_black_borders(img));
@@ -188,10 +191,10 @@ fn capture_to_dynamic_image(
 /// Capture a source and apply blacklist redaction for monitor captures.
 fn capture_to_dynamic_image_with_blacklist(
     source: &CaptureSource,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
     blacklisted_apps: &[String],
 ) -> Result<DynamicImage, String> {
-    let mut dynamic = capture_to_dynamic_image(source, pipewire_fd)?;
+    let mut dynamic = capture_to_dynamic_image(source, pipewire_fds)?;
 
     // Only apply redaction for monitor captures with a non-empty blacklist
     if let CaptureSource::Monitor { id } = source {
@@ -237,14 +240,14 @@ pub fn take_screenshot_raw(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
 ) -> Result<RawCaptureResult, String> {
     take_screenshot_raw_with_blacklist(
         source,
         max_width,
         max_height,
         jpeg_quality,
-        pipewire_fd,
+        pipewire_fds,
         &[],
     )
 }
@@ -254,11 +257,11 @@ pub fn take_screenshot_raw_with_blacklist(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
     blacklisted_apps: &[String],
 ) -> Result<RawCaptureResult, String> {
     let mut dynamic =
-        capture_to_dynamic_image_with_blacklist(&source, pipewire_fd, blacklisted_apps)?;
+        capture_to_dynamic_image_with_blacklist(&source, pipewire_fds, blacklisted_apps)?;
 
     if dynamic.width() <= 2 || dynamic.height() <= 2 {
         return Err("Source is minimized or invisible".to_string());
@@ -296,14 +299,14 @@ pub fn take_screenshot(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
 ) -> Result<CaptureResult, String> {
     take_screenshot_with_blacklist(
         source,
         max_width,
         max_height,
         jpeg_quality,
-        pipewire_fd,
+        pipewire_fds,
         &[],
     )
 }
@@ -313,7 +316,7 @@ pub fn take_screenshot_with_blacklist(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
     blacklisted_apps: &[String],
 ) -> Result<CaptureResult, String> {
     let raw = take_screenshot_raw_with_blacklist(
@@ -321,7 +324,7 @@ pub fn take_screenshot_with_blacklist(
         max_width,
         max_height,
         jpeg_quality,
-        pipewire_fd,
+        pipewire_fds,
         blacklisted_apps,
     )?;
     let size_bytes = raw.data.len();
@@ -342,14 +345,14 @@ pub fn take_stitched_screenshots(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
 ) -> Result<CaptureResult, String> {
     take_stitched_screenshots_with_blacklist(
         sources,
         max_width,
         max_height,
         jpeg_quality,
-        pipewire_fd,
+        pipewire_fds,
         &[],
     )
 }
@@ -359,7 +362,7 @@ pub fn take_stitched_screenshots_with_blacklist(
     max_width: u32,
     max_height: u32,
     jpeg_quality: u8,
-    pipewire_fd: Option<i32>,
+    pipewire_fds: &std::collections::HashMap<u32, i32>,
     blacklisted_apps: &[String],
 ) -> Result<CaptureResult, String> {
     if sources.is_empty() {
@@ -372,7 +375,7 @@ pub fn take_stitched_screenshots_with_blacklist(
             max_width,
             max_height,
             jpeg_quality,
-            pipewire_fd,
+            pipewire_fds,
             blacklisted_apps,
         );
     }
@@ -380,7 +383,7 @@ pub fn take_stitched_screenshots_with_blacklist(
     let mut images = Vec::new();
     for source in sources {
         if let Ok(img) =
-            capture_to_dynamic_image_with_blacklist(source, pipewire_fd, blacklisted_apps)
+            capture_to_dynamic_image_with_blacklist(source, pipewire_fds, blacklisted_apps)
         {
             // Drop ghost artifacts from closed/minimized windows (OS sometimes returns 1x1 buffers)
             if img.width() > 2 && img.height() > 2 {
