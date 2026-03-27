@@ -6,8 +6,11 @@ import React from "react";
 import { getReport } from "./logger.js"; // side-effect: captures console, renders debug panel
 import { App } from "./App.js";
 
+declare const __APP_VERSION__: string;
+
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
+  release: `lookout-desktop@${__APP_VERSION__}`,
   environment: "desktop",
   sendDefaultPii: true,
   tracesSampleRate: 0.2,

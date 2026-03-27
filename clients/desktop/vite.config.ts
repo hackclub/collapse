@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import { readFileSync } from "fs";
 
 const host = process.env.TAURI_DEV_HOST;
+const { version } = JSON.parse(readFileSync("package.json", "utf-8"));
 
 export default defineConfig({
   plugins: [
@@ -13,6 +15,7 @@ export default defineConfig({
             org: process.env.SENTRY_ORG,
             project: process.env.SENTRY_PROJECT,
             authToken: process.env.SENTRY_AUTH_TOKEN,
+            release: { name: `lookout-desktop@${version}` },
           }),
         ]
       : []),
@@ -28,6 +31,9 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:3001",
     },
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
   },
   build: {
     outDir: "dist",
