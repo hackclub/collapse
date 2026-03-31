@@ -48,7 +48,7 @@ async function fetchSessionStatus(token: string): Promise<string | null> {
 }
 
 export function App() {
-  const isTray = window.location.hash === "#tray" || window.location.hash.startsWith("#tray?");
+  const isTray = window.location.hash.includes("tray");
   if (isTray) {
     return <TrayApp />;
   }
