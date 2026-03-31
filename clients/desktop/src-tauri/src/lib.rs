@@ -1121,6 +1121,23 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
+                // Disable App Nap so macOS doesn't throttle WebView timers when
+                // the window is occluded or Low Power Mode is on.  The capture
+                // loop runs entirely in JS, so throttled timers = missed screenshots.
+                // The returned activity token is intentionally leaked (never ended)
+                // so the assertion lasts for the lifetime of the process.
+                {
+                    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+                    let info = NSProcessInfo::processInfo();
+                    let reason = NSString::from_str("Periodic screenshot capture must not be throttled");
+                    let opts = NSActivityOptions::LatencyCritical
+                        | NSActivityOptions::IdleSystemSleepDisabled;
+                    let _activity = info.beginActivityWithOptions_reason(opts, &reason);
+                    // Leak the token so the activity assertion persists.
+                    std::mem::forget(_activity);
+                    eprintln!("[power] App Nap suppression enabled");
+                }
+
                 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
                 let app_menu = Submenu::with_items(
