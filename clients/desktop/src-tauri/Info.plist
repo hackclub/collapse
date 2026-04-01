@@ -4,5 +4,7 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Collapse uses your camera to capture periodic photos of your work for timelapses.</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
 </dict>
 </plist>

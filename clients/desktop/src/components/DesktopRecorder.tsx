@@ -200,6 +200,9 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     (async () => {
       if (isCamera) {
         await startCameraAndWait();
+        // Camera sources use JS-side capture loop, so we need to
+        // explicitly start the Rust tray ticker for the menu bar time.
+        invoke("start_tray_ticker", { trackedSeconds: 0 }).catch(console.error);
       }
       capture.startCapturing();
     })();
@@ -260,6 +263,7 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     console.log("[session] pausing...");
     setPauseLoading(true);
     capture.stopCapturing();
+    invoke("pause_tray_ticker").catch(console.error);
     if (isCamera) camera.stopStream();
     await session.pause();
     console.log("[session] paused");
@@ -274,6 +278,7 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
       console.log(`[session] restarting camera stream for device ${cameraDeviceId}`);
       await startCameraAndWait();
     }
+    invoke("resume_tray_ticker", { trackedSeconds: capture.trackedSeconds }).catch(console.error);
     await capture.startCapturing();
     console.log("[session] resumed");
     setResumeLoading(false);
@@ -283,6 +288,7 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
   const handleStopClick = useCallback(async () => {
     console.log("[session] stop clicked, pausing and opening naming modal");
     capture.stopCapturing();
+    invoke("pause_tray_ticker").catch(console.error);
     if (isCamera) camera.stopStream();
     await session.pause();
     setIsPrompting(true);
@@ -297,6 +303,7 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     if (isCamera) {
       await startCameraAndWait();
     }
+    invoke("resume_tray_ticker", { trackedSeconds: capture.trackedSeconds }).catch(console.error);
     await capture.startCapturing();
     setResumeLoading(false);
   }, [capture, session, isCamera, cameraDeviceId, camera, startCameraAndWait]);
@@ -344,15 +351,25 @@ export function DesktopRecorder({ token, source, onChangeSource: _onChangeSource
     };
     
     invoke("show_tray", { timeText }).catch(console.error);
+    // The Rust tray ticker now handles the menu bar title, but we
+    // still call update_tray_time as a fallback for the initial render
+    // and for camera sources where the ticker might not be running yet.
     invoke("update_tray_time", { timeText, isPaused: controlMode === "paused" }).catch(console.error);
     invoke("set_tray_state", { state }).catch(console.error);
     emit("tray-state", state).catch(console.error);
+
+    // Sync tracked seconds to Rust tray timer so it stays accurate
+    // after server corrections or session timer updates.
+    if (capture.trackedSeconds > 0) {
+      invoke("sync_tray_tracked_seconds", { trackedSeconds: capture.trackedSeconds }).catch(console.error);
+    }
   }, [displaySeconds, screenshotCount, controlMode]);
 
   // Hide tray on unmount or session end
   useEffect(() => {
     return () => {
       invoke("hide_tray").catch(console.error);
+      invoke("stop_tray_ticker").catch(console.error);
     };
   }, []);
 

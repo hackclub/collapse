@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../logger.js";
+import { listen } from "@tauri-apps/api/event";
 import { SCREENSHOT_INTERVAL_MS, MAX_WIDTH, MAX_HEIGHT, JPEG_QUALITY } from "@lookout/shared";
 
 /** Race a promise against a timeout. Rejects with a clear message if the timeout fires first. */
@@ -41,6 +42,10 @@ export type CameraFrameCapture = () => Promise<{
  * 2. Upload directly from Rust (no CORS)
  * 3. Confirm with the server
  * 4. Return the captured frame as a preview URL
+ *
+ * For screen/window/pipewire sources, the 60s capture timer runs in Rust
+ * (immune to WebView/App Nap throttling). For camera sources, the timer
+ * runs in JS (browser must be active to capture frames from the video element).
  */
 export function useNativeCapture(
   token: string,
@@ -77,99 +82,75 @@ export function useNativeCapture(
   const onSessionTerminatedRef = useRef(onSessionTerminated);
   onSessionTerminatedRef.current = onSessionTerminated;
 
-  const captureOnce = useCallback(async () => {
-    const s = sourcesRef.current;
-    if (s.length === 0) return;
-    console.log(`[capture] starting capture for ${s.length} sources`);
-    try {
-      let result: CaptureUploadResult;
+  // Detect whether sources are camera-only (JS timer) vs screen/window (Rust timer)
+  const isCamera = sources.length === 1 && sources[0].type === "camera";
+  const isCameraRef = useRef(isCamera);
+  isCameraRef.current = isCamera;
 
-      // Camera sources use a browser-side frame capture + Rust upload
-      const isCamera = s.length === 1 && s[0].type === "camera";
-      if (isCamera) {
-        const captureFn = cameraCaptureRef.current;
-        if (!captureFn) {
-          console.warn("[capture] camera source but no captureFrame callback provided, skipping");
-          return;
-        }
-        const frame = await captureFn();
-        if (!frame) {
-          console.warn("[capture] camera frame capture returned null, skipping this interval");
-          return;
-        }
-        console.log(`[capture] camera frame captured ${frame.width}x${frame.height} (${Math.round(frame.base64.length * 3 / 4 / 1024)}KB)`);
-        result = await withTimeout(
-          invoke<CaptureUploadResult>("upload_frame", {
-            base64: frame.base64,
-            width: frame.width,
-            height: frame.height,
-          }),
-          CAPTURE_TIMEOUT_MS,
-          "upload_frame",
-        );
-      } else {
-        // Screen/window: full capture+upload pipeline in Rust (supports multi-source stitching)
-        result = await withTimeout(
-          invoke<CaptureUploadResult>("capture_and_upload", {
-            sources: s,
-            maxWidth: MAX_WIDTH,
-            maxHeight: MAX_HEIGHT,
-            jpegQuality: Math.round(JPEG_QUALITY * 100),
-          }),
-          CAPTURE_TIMEOUT_MS,
-          "capture_and_upload",
-        );
-      }
+  // ── Helper: convert base64 preview to blob URL ──
+  const updatePreview = useCallback((previewBase64: string) => {
+    if (!previewBase64) return;
+    const bytes = Uint8Array.from(atob(previewBase64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    blobUrlRef.current = url;
+    setLastScreenshotUrl(url);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Camera-only capture (JS-side timer, unchanged from original)
+  // ─────────────────────────────────────────────────────────────────
+  const captureOnceCamera = useCallback(async () => {
+    const captureFn = cameraCaptureRef.current;
+    if (!captureFn) {
+      console.warn("[capture] camera source but no captureFrame callback provided, skipping");
+      return;
+    }
+    const frame = await captureFn();
+    if (!frame) {
+      console.warn("[capture] camera frame capture returned null, skipping this interval");
+      return;
+    }
+    console.log(`[capture] camera frame captured ${frame.width}x${frame.height} (${Math.round(frame.base64.length * 3 / 4 / 1024)}KB)`);
+    try {
+      const result = await withTimeout(
+        invoke<CaptureUploadResult>("upload_frame", {
+          base64: frame.base64,
+          width: frame.width,
+          height: frame.height,
+        }),
+        CAPTURE_TIMEOUT_MS,
+        "upload_frame",
+      );
 
       setTrackedSeconds(result.trackedSeconds);
       setLastCaptureAt(Date.now());
       setScreenshotCount((c) => {
         const n = c + 1;
-        console.log(`[capture] screenshot #${n} done, tracked: ${result.trackedSeconds}s, next at: ${result.nextExpectedAt}`);
+        console.log(`[capture] screenshot #${n} done, tracked: ${result.trackedSeconds}s`);
         return n;
       });
       setError(null);
-
-      // Convert preview base64 to blob URL for display
-      if (result.previewBase64) {
-        const bytes = Uint8Array.from(atob(result.previewBase64), (c) => c.charCodeAt(0));
-        const blob = new Blob([bytes], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = url;
-        setLastScreenshotUrl(url);
-      }
-      console.log(`[capture] next capture in ${SCREENSHOT_INTERVAL_MS / 1000}s`);
+      updatePreview(result.previewBase64);
+      // Sync the Rust tray timer so the menu bar time stays accurate
+      invoke("sync_tray_tracked_seconds", { trackedSeconds: result.trackedSeconds }).catch(console.error);
     } catch (err) {
       const msg = err instanceof Error
         ? err.message + (err.stack ? "\n" + err.stack : "")
         : String(err);
-      console.error(`[capture] capture failed: ${msg}`);
+      console.error(`[capture] camera capture failed: ${msg}`);
       setError(msg);
 
-      // Check if the server paused the session (e.g., stale lastScreenshotAt
-      // triggered the cron auto-pause, causing upload rejections).
-      // Only auto-resume if we're still actively capturing — if the user
-      // intentionally paused/stopped, isCapturing will be false and we must
-      // NOT resume (otherwise the server stays "active" while the client
-      // thinks it's paused, leading to eventual auto-stop by the cron).
-      if (!capturingRef.current) {
-        console.log("[capture] capture stopped during in-flight request, skipping auto-resume");
-        return;
-      }
+      if (!capturingRef.current) return;
       try {
         const res = await fetch(`${apiBaseUrl}/api/sessions/${token}/status`);
         if (res.ok) {
           const data = await res.json();
           if (data.status === "paused") {
-            // Double-check we're still capturing — user may have paused
-            // between the fetch and here.
-            if (!capturingRef.current) {
-              console.log("[capture] user paused during status check, skipping auto-resume");
-              return;
-            }
+            if (!capturingRef.current) return;
             await fetch(`${apiBaseUrl}/api/sessions/${token}/resume`, { method: "POST" });
-            console.log("[capture] session auto-resumed after capture failure");
+            console.log("[capture] session auto-resumed after camera capture failure");
             setError(null);
           } else if (data.status !== "active" && data.status !== "pending") {
             console.warn(`[capture] session is ${data.status}, stopping capture`);
@@ -178,35 +159,22 @@ export function useNativeCapture(
           }
         }
       } catch {
-        // Best-effort — next tick will retry
+        // Best-effort
       }
     }
-  }, [apiBaseUrl, token]);
+  }, [apiBaseUrl, token, updatePreview]);
 
-  // Keep captureOnce in a ref so the interval always calls the latest version
-  const captureRef = useRef(captureOnce);
-  captureRef.current = captureOnce;
+  const captureOnceCameraRef = useRef(captureOnceCamera);
+  captureOnceCameraRef.current = captureOnceCamera;
 
-  // The capture loop: one effect manages the entire interval lifecycle.
-  // Starts when isCapturing becomes true, stops when it becomes false.
-  // Uses a drift-compensating setTimeout chain so that upload latency
-  // doesn't push subsequent captures later and later (setInterval +
-  // busy-guard would silently skip ticks when uploads are slow, losing
-  // tracked minutes).  Each tick is scheduled relative to a wall-clock
-  // anchor so that an upload taking e.g. 2 s results in a 58 s wait,
-  // keeping captures aligned to a true 60 s cadence.
-  // Detects sleep by comparing elapsed time between ticks — if the gap is
-  // much longer than the interval, the machine slept and we auto-resume.
+  // Camera-only JS timer (drift-compensating setTimeout chain)
   useEffect(() => {
-    if (!isCapturing) return;
+    if (!isCapturing || !isCamera) return;
 
     let cancelled = false;
     let timerId: ReturnType<typeof setTimeout> | null = null;
-    // Wall-clock time when the next tick *should* fire.
-    // Initialised to "now" so the first capture runs immediately.
     let nextTargetTime = Date.now();
     let lastTickTime = Date.now();
-
     const SLEEP_THRESHOLD = SCREENSHOT_INTERVAL_MS * 2.5;
 
     const scheduleNext = () => {
@@ -218,21 +186,18 @@ export function useNativeCapture(
 
     const tick = async () => {
       if (cancelled) return;
-
       const now = Date.now();
       const elapsed = now - lastTickTime;
       lastTickTime = now;
 
       if (elapsed > SLEEP_THRESHOLD) {
         console.warn(`[capture] detected sleep (gap: ${Math.round(elapsed / 1000)}s), checking session status...`);
-        // Re-anchor to now so we don't rapid-fire to "catch up" after sleep
         nextTargetTime = now;
         try {
           const res = await fetch(`${apiBaseUrl}/api/sessions/${token}/status`);
           if (res.ok) {
             const data = await res.json();
             console.log(`[capture] session status after sleep: ${data.status}`);
-            // Reset timer to server value so it doesn't interpolate the sleep gap
             if (typeof data.trackedSeconds === "number") {
               setTrackedSeconds(data.trackedSeconds);
             }
@@ -253,21 +218,83 @@ export function useNativeCapture(
       }
 
       try {
-        await captureRef.current();
+        await captureOnceCameraRef.current();
       } finally {
         scheduleNext();
       }
     };
 
-    console.log(`[capture] capture loop started, interval: ${SCREENSHOT_INTERVAL_MS}ms`);
-    // Fire the first capture immediately (delay = 0 since nextTargetTime = now)
+    console.log(`[capture] camera capture loop started, interval: ${SCREENSHOT_INTERVAL_MS}ms`);
     timerId = setTimeout(tick, 0);
     return () => {
-      console.log("[capture] capture loop stopped");
+      console.log("[capture] camera capture loop stopped");
       cancelled = true;
       if (timerId !== null) clearTimeout(timerId);
     };
-  }, [isCapturing, apiBaseUrl, token]);
+  }, [isCapturing, isCamera, apiBaseUrl, token]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Screen/window/pipewire: Rust-side capture loop + event listeners
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isCapturing || isCamera) return;
+
+    const nativeSources = sourcesRef.current
+      .filter((s): s is { type: "monitor" | "window" | "pipewire"; id: number } =>
+        s.type !== "camera" && typeof s.id === "number"
+      );
+
+    if (nativeSources.length === 0) return;
+
+    console.log(`[capture] starting Rust capture loop for ${nativeSources.length} sources`);
+
+    invoke("start_capture_loop", {
+      sources: nativeSources,
+      maxWidth: MAX_WIDTH,
+      maxHeight: MAX_HEIGHT,
+      jpegQuality: Math.round(JPEG_QUALITY * 100),
+    }).catch((err) => {
+      console.error("[capture] failed to start Rust capture loop:", err);
+      setError(String(err));
+    });
+
+    // Listen for results from the Rust capture loop.
+    // Each listen() returns a Promise<UnlistenFn>. We must await them
+    // during cleanup to avoid leaking listeners on fast unmount.
+    const listenerPromises = [
+      listen<CaptureUploadResult>("capture-tick-result", (event) => {
+        const result = event.payload;
+        setTrackedSeconds(result.trackedSeconds);
+        setLastCaptureAt(Date.now());
+        setScreenshotCount((c) => {
+          const n = c + 1;
+          console.log(`[capture] screenshot #${n} done (Rust), tracked: ${result.trackedSeconds}s`);
+          return n;
+        });
+        setError(null);
+        updatePreview(result.previewBase64);
+      }),
+      listen<{ message: string }>("capture-tick-error", (event) => {
+        console.error(`[capture] Rust capture error: ${event.payload.message}`);
+        setError(event.payload.message);
+      }),
+      listen<number>("capture-tracked-seconds", (event) => {
+        setTrackedSeconds(event.payload);
+      }),
+      listen<{ status: string }>("capture-session-terminated", (event) => {
+        console.warn(`[capture] session terminated: ${event.payload.status}`);
+        capturingRef.current = false;
+        setIsCapturing(false);
+        onSessionTerminatedRef.current?.(event.payload.status);
+      }),
+    ];
+
+    return () => {
+      console.log("[capture] stopping Rust capture loop");
+      invoke("stop_capture_loop").catch(console.error);
+      listenerPromises.forEach((p) => p.then((unlisten) => unlisten()));
+    };
+  }, [isCapturing, isCamera, updatePreview]);
 
   // Clean up blob URL on unmount
   useEffect(() => {

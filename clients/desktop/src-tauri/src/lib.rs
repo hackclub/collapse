@@ -18,14 +18,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::c_void;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 #[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
+use std::time::Instant as StdInstant;
 use tauri::http;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tokio::sync::watch;
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
@@ -41,6 +44,31 @@ static CAPTURABLE_WINDOW_CACHE: OnceLock<Mutex<HashMap<u32, CapturableWindowCach
 #[cfg(target_os = "macos")]
 const CAPTURABLE_WINDOW_CACHE_TTL: Duration = Duration::from_secs(15);
 
+/// Handle for cancelling the Rust-side capture loop.
+struct CaptureLoopHandle {
+    cancel_tx: watch::Sender<bool>,
+    join_handle: tokio::task::JoinHandle<()>,
+}
+
+/// Shared state for the Rust-side tray title timer.
+/// Uses atomics so the capture loop can update tracked_seconds
+/// without acquiring a mutex on every tick.
+struct TrayTimerState {
+    /// Authoritative tracked seconds from the last server response.
+    tracked_seconds: AtomicI64,
+    /// Wall-clock instant when tracking started (or last synced).
+    started_at: Mutex<StdInstant>,
+    /// Whether the timer is actively ticking (false = paused).
+    is_running: AtomicBool,
+}
+
+/// Handle for the tray title ticker task.
+struct TrayTimerHandle {
+    state: Arc<TrayTimerState>,
+    cancel_tx: watch::Sender<bool>,
+    join_handle: tokio::task::JoinHandle<()>,
+}
+
 /// App state shared across commands.
 pub struct AppState {
     pub config: Mutex<Option<SessionConfig>>,
@@ -52,6 +80,12 @@ pub struct AppState {
     pub pipewire_fds: Mutex<std::collections::HashMap<u32, std::os::fd::RawFd>>,
     /// App names whose windows should be blacked out in monitor captures.
     pub blacklisted_apps: Mutex<Vec<String>>,
+    /// Active Rust-side capture loop (if running). Holds the cancel channel
+    /// and JoinHandle so we can stop it from `stop_capture_loop`.
+    capture_loop: Mutex<Option<CaptureLoopHandle>>,
+    /// Rust-side 1s tray title ticker — keeps the menu bar time accurate
+    /// even when the WebView's JS timers are throttled.
+    tray_timer: Mutex<Option<TrayTimerHandle>>,
 }
 
 /// Central deep link handler. All deep link entry points (cold start, single
@@ -478,7 +512,7 @@ pub struct ConfirmResponse {
 
 /// Result returned to the frontend from capture_and_upload.
 /// Includes the server confirm data AND the screenshot preview.
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureUploadResult {
     pub confirmed: bool,
@@ -947,6 +981,522 @@ async fn upload_frame(
     upload_and_confirm(&base64, width, height, &config, &app).await
 }
 
+// ── Capture-loop interval (seconds) ─────────────────────────────
+const CAPTURE_INTERVAL_SECS: u64 = 60;
+/// If the wall-clock gap between ticks exceeds this, the machine
+/// probably slept (or the WebView was throttled hard).
+const SLEEP_THRESHOLD_SECS: u64 = CAPTURE_INTERVAL_SECS * 2 + 30; // 150s
+
+/// Format seconds into the same tray title format as the JS side:
+/// >0h: "{h}h {m}m", 0m: "< 1m", else: "{m}m"
+fn format_tray_time(total_seconds: i64) -> String {
+    let total = total_seconds.max(0) as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    if h > 0 {
+        format!("{h}h {m}m")
+    } else if m == 0 {
+        "< 1m".to_string()
+    } else {
+        format!("{m}m")
+    }
+}
+
+/// The tray title ticker task — updates the menu bar text every second.
+/// Runs independently of JS so it works even when the WebView is throttled.
+async fn tray_timer_task(
+    app: AppHandle,
+    timer_state: Arc<TrayTimerState>,
+    mut cancel_rx: watch::Receiver<bool>,
+) {
+    use tokio::time::{interval, Duration, MissedTickBehavior};
+
+    let mut ticker = interval(Duration::from_secs(1));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = cancel_rx.changed() => {
+                eprintln!("[tray-timer] cancelled");
+                break;
+            }
+        }
+
+        if !timer_state.is_running.load(Ordering::Relaxed) {
+            continue;
+        }
+
+        let base_seconds = timer_state.tracked_seconds.load(Ordering::Relaxed);
+        let elapsed = {
+            let started = timer_state.started_at.lock().unwrap();
+            started.elapsed().as_secs() as i64
+        };
+        let display_seconds = base_seconds + elapsed;
+
+        let time_text = format_tray_time(display_seconds);
+        if let Some(tray) = app.tray_by_id("timelapse_tray") {
+            let _ = tray.set_title(Some(time_text));
+        }
+
+        // Also emit to the tray popup window so it stays in sync
+        let _ = app.emit("tray-timer-tick", display_seconds);
+    }
+}
+
+/// Start the tray timer (if not already running). Returns the shared state
+/// so the capture loop can sync `tracked_seconds` into it.
+fn start_tray_timer(app: &AppHandle, state: &AppState) -> Arc<TrayTimerState> {
+    let mut guard = state.tray_timer.lock().unwrap();
+
+    // If already running, just return the existing state handle
+    if let Some(ref handle) = *guard {
+        return Arc::clone(&handle.state);
+    }
+
+    let timer_state = Arc::new(TrayTimerState {
+        tracked_seconds: AtomicI64::new(0),
+        started_at: Mutex::new(StdInstant::now()),
+        is_running: AtomicBool::new(true),
+    });
+
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    let app_clone = app.clone();
+    let state_clone = Arc::clone(&timer_state);
+
+    let join_handle = tokio::spawn(async move {
+        tray_timer_task(app_clone, state_clone, cancel_rx).await;
+    });
+
+    eprintln!("[tray-timer] started");
+
+    let handle = TrayTimerHandle {
+        state: Arc::clone(&timer_state),
+        cancel_tx,
+        join_handle,
+    };
+    *guard = Some(handle);
+
+    timer_state
+}
+
+/// Stop the tray timer.
+fn stop_tray_timer(state: &AppState) {
+    let mut guard = state.tray_timer.lock().unwrap();
+    if let Some(handle) = guard.take() {
+        eprintln!("[tray-timer] stopping");
+        let _ = handle.cancel_tx.send(true);
+        handle.join_handle.abort();
+    }
+}
+
+/// Sync the tray timer to a new authoritative tracked_seconds value
+/// (typically from a capture result). Resets the elapsed counter.
+fn sync_tray_timer(state: &AppState, tracked_seconds: i64) {
+    let guard = state.tray_timer.lock().unwrap();
+    if let Some(ref handle) = *guard {
+        handle
+            .state
+            .tracked_seconds
+            .store(tracked_seconds, Ordering::Relaxed);
+        let mut started = handle.state.started_at.lock().unwrap();
+        *started = StdInstant::now();
+    }
+}
+
+/// Pause the tray timer (freeze the displayed time).
+fn pause_tray_timer(state: &AppState) {
+    let guard = state.tray_timer.lock().unwrap();
+    if let Some(ref handle) = *guard {
+        handle.state.is_running.store(false, Ordering::Relaxed);
+    }
+}
+
+/// Resume the tray timer. Resets the elapsed counter so it continues
+/// from the current tracked_seconds.
+fn resume_tray_timer(state: &AppState) {
+    let guard = state.tray_timer.lock().unwrap();
+    if let Some(ref handle) = *guard {
+        let mut started = handle.state.started_at.lock().unwrap();
+        *started = StdInstant::now();
+        handle.state.is_running.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Event payload emitted to JS after each successful capture.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureTickResult {
+    confirmed: bool,
+    tracked_seconds: i64,
+    next_expected_at: String,
+    preview_base64: String,
+    preview_width: u32,
+    preview_height: u32,
+}
+
+impl From<CaptureUploadResult> for CaptureTickResult {
+    fn from(r: CaptureUploadResult) -> Self {
+        Self {
+            confirmed: r.confirmed,
+            tracked_seconds: r.tracked_seconds,
+            next_expected_at: r.next_expected_at,
+            preview_base64: r.preview_base64,
+            preview_width: r.preview_width,
+            preview_height: r.preview_height,
+        }
+    }
+}
+
+/// Event payload emitted when a capture tick fails.
+#[derive(Clone, Serialize)]
+struct CaptureTickError {
+    message: String,
+}
+
+/// Event payload emitted when the capture loop detects a terminal session state.
+#[derive(Clone, Serialize)]
+struct CaptureSessionTerminated {
+    status: String,
+}
+
+/// Session status response from the server.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStatusResponse {
+    status: String,
+    #[serde(default)]
+    tracked_seconds: Option<i64>,
+}
+
+/// The core capture loop, runs on a tokio task. Captures screenshots at
+/// a fixed interval, uploads them, and emits events back to JS.
+///
+/// This is immune to WebView timer throttling because it runs entirely
+/// in the Rust/tokio runtime — no JS setTimeout involved.
+async fn capture_loop_task(
+    app: AppHandle,
+    sources: Vec<CaptureSource>,
+    max_width: u32,
+    max_height: u32,
+    jpeg_quality: u8,
+    mut cancel_rx: watch::Receiver<bool>,
+) {
+    use tokio::time::{interval, Duration, MissedTickBehavior};
+
+    let mut ticker = interval(Duration::from_secs(CAPTURE_INTERVAL_SECS));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    // Consume the first (immediate) tick — we want to fire one capture right away.
+    ticker.tick().await;
+    let mut last_tick = StdInstant::now();
+
+    // Helper: check session status with the server and handle sleep/pause recovery
+    async fn handle_sleep_recovery(
+        app: &AppHandle,
+        config: &SessionConfig,
+    ) -> Result<bool /* should_continue */, ()> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_default();
+        let url = format!("{}/api/sessions/{}/status", config.api_base_url, config.token);
+        match client.get(&url).send().await {
+            Ok(res) if res.status().is_success() => {
+                if let Ok(data) = res.json::<SessionStatusResponse>().await {
+                    eprintln!("[capture-loop] session status after sleep: {}", data.status);
+                    if let Some(ts) = data.tracked_seconds {
+                        let _ = app.emit("capture-tracked-seconds", ts);
+                    }
+                    if data.status == "paused" {
+                        let resume_url = format!(
+                            "{}/api/sessions/{}/resume",
+                            config.api_base_url, config.token
+                        );
+                        let _ = client.post(&resume_url).send().await;
+                        eprintln!("[capture-loop] session resumed after sleep");
+                    } else if data.status != "active" && data.status != "pending" {
+                        eprintln!(
+                            "[capture-loop] session is {}, stopping capture loop",
+                            data.status
+                        );
+                        let _ = app.emit(
+                            "capture-session-terminated",
+                            CaptureSessionTerminated {
+                                status: data.status,
+                            },
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(res) => {
+                eprintln!("[capture-loop] status check failed: HTTP {}", res.status());
+            }
+            Err(e) => {
+                eprintln!("[capture-loop] status check failed: {e}");
+            }
+        }
+        Ok(true)
+    }
+
+    loop {
+        // ── First capture fires immediately; subsequent ones wait for the interval tick ──
+        // (We already consumed the first tick above, so this select waits for either
+        // the next 60s tick or cancellation.)
+
+        // Run one capture tick
+        let now = StdInstant::now();
+        let elapsed_secs = now.duration_since(last_tick).as_secs();
+        last_tick = now;
+
+        // Read config for this tick
+        let config = {
+            let state = app.state::<AppState>();
+            let guard = state.config.lock().unwrap();
+            match guard.clone() {
+                Some(c) => c,
+                None => {
+                    let _ = app.emit(
+                        "capture-tick-error",
+                        CaptureTickError {
+                            message: "Not configured".into(),
+                        },
+                    );
+                    break;
+                }
+            }
+        };
+
+        // Sleep detection
+        if elapsed_secs > SLEEP_THRESHOLD_SECS {
+            eprintln!(
+                "[capture-loop] detected sleep (gap: {}s), checking session status...",
+                elapsed_secs
+            );
+            match handle_sleep_recovery(&app, &config).await {
+                Ok(true) => { /* continue capturing */ }
+                Ok(false) => break,
+                Err(_) => { /* best effort, continue */ }
+            }
+        }
+
+        // Take screenshot (blocking I/O via xcap — run on blocking threadpool)
+        let blacklisted = {
+            let state = app.state::<AppState>();
+            state
+                .blacklisted_apps
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default()
+        };
+
+        #[allow(unused_mut, unused_assignments)]
+        let mut pipewire_fds = std::collections::HashMap::new();
+        #[cfg(target_os = "linux")]
+        {
+            let state = app.state::<AppState>();
+            if let Ok(guard) = state.pipewire_fds.lock() {
+                pipewire_fds = guard.clone();
+            }
+        }
+
+        let sources_clone = sources.clone();
+        let bl = blacklisted;
+        let pw_fds = pipewire_fds;
+        let screenshot_result = tokio::task::spawn_blocking(move || {
+            capture::take_stitched_screenshots_with_blacklist(
+                &sources_clone,
+                max_width,
+                max_height,
+                jpeg_quality,
+                &pw_fds,
+                &bl,
+            )
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking panicked: {e}"))
+        .and_then(|r| r);
+
+        match screenshot_result {
+            Ok(screenshot) => {
+                match upload_and_confirm(
+                    &screenshot.base64,
+                    screenshot.width,
+                    screenshot.height,
+                    &config,
+                    &app,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        // Sync tray timer to authoritative server time
+                        {
+                            let state = app.state::<AppState>();
+                            sync_tray_timer(&state, result.tracked_seconds);
+                        }
+                        let _ = app.emit("capture-tick-result", CaptureTickResult::from(result));
+                    }
+                    Err(e) => {
+                        eprintln!("[capture-loop] upload failed: {e}");
+                        let _ = app.emit(
+                            "capture-tick-error",
+                            CaptureTickError {
+                                message: e.clone(),
+                            },
+                        );
+                        // Check if server paused the session
+                        match handle_sleep_recovery(&app, &config).await {
+                            Ok(true) => { /* continue */ }
+                            Ok(false) => break,
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[capture-loop] screenshot failed: {e}");
+                let _ = app.emit(
+                    "capture-tick-error",
+                    CaptureTickError {
+                        message: e.clone(),
+                    },
+                );
+            }
+        }
+
+        // Wait for next tick or cancellation
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = cancel_rx.changed() => {
+                eprintln!("[capture-loop] cancelled");
+                break;
+            }
+        }
+    }
+
+    eprintln!("[capture-loop] stopped");
+}
+
+/// Start the Rust-side capture loop. Replaces any existing loop.
+/// For screen/window/pipewire sources only — camera sources stay JS-driven.
+#[tauri::command]
+async fn start_capture_loop(
+    sources: Vec<CaptureSource>,
+    max_width: u32,
+    max_height: u32,
+    jpeg_quality: u8,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    // Stop any existing loop first
+    {
+        let mut guard = state.capture_loop.lock().map_err(|e| e.to_string())?;
+        if let Some(handle) = guard.take() {
+            let _ = handle.cancel_tx.send(true);
+            handle.join_handle.abort();
+        }
+    }
+
+    // Start the tray timer (if not already running)
+    start_tray_timer(&app, &state);
+
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    let app_clone = app.clone();
+
+    eprintln!(
+        "[capture-loop] starting with {} sources, {}x{} q{}",
+        sources.len(),
+        max_width,
+        max_height,
+        jpeg_quality
+    );
+
+    let join_handle = tokio::spawn(async move {
+        capture_loop_task(app_clone, sources, max_width, max_height, jpeg_quality, cancel_rx).await;
+    });
+
+    {
+        let mut guard = state.capture_loop.lock().map_err(|e| e.to_string())?;
+        *guard = Some(CaptureLoopHandle {
+            cancel_tx,
+            join_handle,
+        });
+    }
+
+    Ok(())
+}
+
+/// Stop the Rust-side capture loop (if running).
+#[tauri::command]
+fn stop_capture_loop(state: State<'_, AppState>) -> Result<(), String> {
+    let mut guard = state.capture_loop.lock().map_err(|e| e.to_string())?;
+    if let Some(handle) = guard.take() {
+        eprintln!("[capture-loop] stopping");
+        let _ = handle.cancel_tx.send(true);
+        handle.join_handle.abort();
+    }
+    // Stop the tray timer too
+    stop_tray_timer(&state);
+    Ok(())
+}
+
+/// Start the Rust-side tray title ticker (for camera sessions where
+/// the capture loop runs in JS but we still want an accurate menu bar timer).
+#[tauri::command]
+fn start_tray_ticker(
+    tracked_seconds: i64,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let timer_state = start_tray_timer(&app, &state);
+    timer_state.tracked_seconds.store(tracked_seconds, Ordering::Relaxed);
+    let mut started = timer_state.started_at.lock().unwrap();
+    *started = StdInstant::now();
+    timer_state.is_running.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Pause the tray title ticker (freezes the displayed time).
+#[tauri::command]
+fn pause_tray_ticker(state: State<'_, AppState>) -> Result<(), String> {
+    pause_tray_timer(&state);
+    Ok(())
+}
+
+/// Resume the tray title ticker.
+#[tauri::command]
+fn resume_tray_ticker(
+    tracked_seconds: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let guard = state.tray_timer.lock().unwrap();
+        if let Some(ref handle) = *guard {
+            handle.state.tracked_seconds.store(tracked_seconds, Ordering::Relaxed);
+        }
+    }
+    resume_tray_timer(&state);
+    Ok(())
+}
+
+/// Stop the tray title ticker.
+#[tauri::command]
+fn stop_tray_ticker(state: State<'_, AppState>) -> Result<(), String> {
+    stop_tray_timer(&state);
+    Ok(())
+}
+
+/// Sync the tray timer to an authoritative tracked_seconds value from JS.
+#[tauri::command]
+fn sync_tray_tracked_seconds(
+    tracked_seconds: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    sync_tray_timer(&state, tracked_seconds);
+    Ok(())
+}
+
 fn base64_decode(b64: &str) -> Result<Vec<u8>, String> {
     use base64_engine::*;
     ENGINE
@@ -1094,6 +1644,8 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             pipewire_fds: Mutex::new(std::collections::HashMap::new()),
             blacklisted_apps: Mutex::new(Vec::new()),
+            capture_loop: Mutex::new(None),
+            tray_timer: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             list_capture_sources,
@@ -1101,6 +1653,13 @@ pub fn run() {
             take_screenshot,
             capture_and_upload,
             upload_frame,
+            start_capture_loop,
+            stop_capture_loop,
+            start_tray_ticker,
+            pause_tray_ticker,
+            resume_tray_ticker,
+            stop_tray_ticker,
+            sync_tray_tracked_seconds,
             get_cold_start_urls,
             enable_vibrancy,
             disable_vibrancy,
@@ -1121,6 +1680,23 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
+                // Disable App Nap so macOS doesn't throttle WebView timers when
+                // the window is occluded or Low Power Mode is on.  The capture
+                // loop runs entirely in JS, so throttled timers = missed screenshots.
+                // The returned activity token is intentionally leaked (never ended)
+                // so the assertion lasts for the lifetime of the process.
+                {
+                    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+                    let info = NSProcessInfo::processInfo();
+                    let reason = NSString::from_str("Periodic screenshot capture must not be throttled");
+                    let opts = NSActivityOptions::LatencyCritical
+                        | NSActivityOptions::IdleSystemSleepDisabled;
+                    let _activity = info.beginActivityWithOptions_reason(opts, &reason);
+                    // Leak the token so the activity assertion persists.
+                    std::mem::forget(_activity);
+                    eprintln!("[power] App Nap suppression enabled");
+                }
+
                 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
                 let app_menu = Submenu::with_items(
@@ -1258,10 +1834,78 @@ pub fn run() {
                 // WebView2 native prompt never appears.
                 #[cfg(target_os = "windows")]
                 windows_permissions::register_permission_handler(&window);
+
+                // When the main window is closed during an active recording,
+                // clean up the capture loop and tray immediately. The session
+                // pause is handled in the RunEvent::ExitRequested handler below
+                // to ensure it completes before the process exits.
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        let state = app_handle.state::<AppState>();
+
+                        // Stop capture loop
+                        if let Ok(mut guard) = state.capture_loop.lock() {
+                            if let Some(handle) = guard.take() {
+                                eprintln!("[window-close] stopping capture loop");
+                                let _ = handle.cancel_tx.send(true);
+                                handle.join_handle.abort();
+                            }
+                        }
+
+                        // Stop tray timer
+                        stop_tray_timer(&state);
+
+                        // Remove tray icon
+                        app_handle.remove_tray_by_id("timelapse_tray");
+                        if let Some(w) = app_handle.get_webview_window("tray") {
+                            let _ = w.close();
+                        }
+                    }
+                });
             }
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                // If there's an active capture loop, pause the session before
+                // allowing exit so it doesn't sit "active" until the server
+                // auto-pauses (5 min timeout).
+                let state = app.state::<AppState>();
+                let has_active_loop = state
+                    .capture_loop
+                    .lock()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                let config = state.config.lock().ok().and_then(|g| g.clone());
+
+                if has_active_loop {
+                    if let Some(config) = config {
+                        // Prevent immediate exit — we need to send the pause request first.
+                        api.prevent_exit();
+                        eprintln!("[exit] pausing session before exit");
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let client = reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(5))
+                                .build()
+                                .unwrap_or_default();
+                            let url = format!(
+                                "{}/api/sessions/{}/pause",
+                                config.api_base_url, config.token
+                            );
+                            match client.post(&url).send().await {
+                                Ok(res) => eprintln!("[exit] pause response: {}", res.status()),
+                                Err(e) => eprintln!("[exit] pause failed (best-effort): {e}"),
+                            }
+                            // Now allow the app to exit
+                            app_handle.exit(0);
+                        });
+                    }
+                }
+            }
+        });
 }
