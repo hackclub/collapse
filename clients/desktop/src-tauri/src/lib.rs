@@ -1298,7 +1298,7 @@ async fn capture_loop_task(
             let state = app.state::<AppState>();
             if let Ok(guard) = state.pipewire_fds.lock() {
                 pipewire_fds = guard.clone();
-            }
+            };
         }
 
         let sources_clone = sources.clone();

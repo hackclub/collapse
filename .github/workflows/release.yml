@@ -231,7 +231,6 @@ jobs:
             clients/desktop/src-tauri/target/*/release/bundle/**/*.app.tar.gz
             clients/desktop/src-tauri/target/release/bundle/**/*.dmg
             clients/desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
-            clients/desktop/src-tauri/target/release/bundle/**/*.AppImage
             clients/desktop/src-tauri/target/release/bundle/**/*.deb
             clients/desktop/src-tauri/target/release/bundle/**/*.rpm
             clients/desktop/src-tauri/target/release/bundle/**/*.msi
@@ -241,7 +240,6 @@ jobs:
             clients/desktop/src-tauri/target/release/bundle/**/*.pkg.tar.zst
             clients/desktop/src-tauri/target/*/release/bundle/**/*.app.tar.gz.sig
             clients/desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
-            clients/desktop/src-tauri/target/release/bundle/**/*.AppImage.sig
             clients/desktop/src-tauri/target/release/bundle/**/*.exe.sig
             clients/desktop/src-tauri/target/*/release/bundle/**/*.exe.sig
             clients/desktop/src-tauri/target/release/bundle/**/*.msi.sig
@@ -274,14 +272,12 @@ jobs:
           find artifacts -type f \( \
             -name "*.dmg" -o \
             -name "*.app.tar.gz" -o \
-            -name "*.AppImage" -o \
             -name "*.deb" -o \
             -name "*.rpm" -o \
             -name "*.msi" -o \
             -name "*.exe" -o \
             -name "*.pkg.tar.zst" -o \
             -name "*.app.tar.gz.sig" -o \
-            -name "*.AppImage.sig" -o \
             -name "*.exe.sig" -o \
             -name "*.msi.sig" \
           \) | while read -r file; do
@@ -327,9 +323,6 @@ jobs:
           MAC_SIG=""
           WIN_X64_SIG=""
           WIN_ARM_SIG=""
-          LINUX_X64_SIG=""
-          LINUX_ARM_SIG=""
-
           for sig_file in release-assets/*.sig; do
             [ -f "$sig_file" ] || continue
             SIG_CONTENT=$(cat "$sig_file")
@@ -338,8 +331,6 @@ jobs:
               *macos*.app.tar.gz.sig) MAC_SIG="$SIG_CONTENT" ;;
               *windows*aarch64*setup.exe.sig|*windows*arm*setup.exe.sig) WIN_ARM_SIG="$SIG_CONTENT" ;;
               *windows*setup.exe.sig) WIN_X64_SIG="$SIG_CONTENT" ;;
-              *linux*aarch64*.AppImage.sig|*linux*arm*.AppImage.sig) LINUX_ARM_SIG="$SIG_CONTENT" ;;
-              *linux*.AppImage.sig) LINUX_X64_SIG="$SIG_CONTENT" ;;
             esac
           done
 
@@ -347,8 +338,6 @@ jobs:
           MAC_FILE=$(ls release-assets/*macos*.app.tar.gz 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "")
           WIN_X64_FILE=$(ls release-assets/*windows*setup.exe 2>/dev/null | grep -v -e aarch64 -e arm64 | head -1 | xargs basename 2>/dev/null || echo "")
           WIN_ARM_FILE=$(find release-assets -maxdepth 1 -name '*windows*setup.exe' | grep -e aarch64 -e arm64 | head -1 | xargs -r basename 2>/dev/null || echo "")
-          LINUX_X64_FILE=$(find release-assets -maxdepth 1 -name '*linux*.AppImage' | grep -v -e aarch64 -e arm | head -1 | xargs -r basename 2>/dev/null || echo "")
-          LINUX_ARM_FILE=$(find release-assets -maxdepth 1 -name '*linux*.AppImage' | grep -e aarch64 -e arm | head -1 | xargs -r basename 2>/dev/null || echo "")
 
           # Build platforms JSON dynamically (only include platforms with artifacts)
           PLATFORMS="{"
@@ -366,8 +355,6 @@ jobs:
           add_platform "darwin-aarch64" "$MAC_SIG" "$MAC_FILE"
           add_platform "windows-x86_64" "$WIN_X64_SIG" "$WIN_X64_FILE"
           add_platform "windows-aarch64" "$WIN_ARM_SIG" "$WIN_ARM_FILE"
-          add_platform "linux-x86_64" "$LINUX_X64_SIG" "$LINUX_X64_FILE"
-          add_platform "linux-aarch64" "$LINUX_ARM_SIG" "$LINUX_ARM_FILE"
 
           PLATFORMS="$PLATFORMS }"
 
