@@ -589,7 +589,15 @@ export async function sessionRoutes(app: FastifyInstance) {
           .where(eq(schema.sessions.id, session.id));
       }
 
-      const trackedSeconds = await getTrackedSeconds(session.id);
+      let trackedSeconds = await getTrackedSeconds(session.id);
+
+      // Round trackedSeconds: if seconds >= 30, round up to next minute
+      const secondsInMinute = trackedSeconds % 60;
+      if (secondsInMinute >= 30) {
+        trackedSeconds = Math.floor(trackedSeconds / 60) * 60 + 60;
+      } else {
+        trackedSeconds = Math.floor(trackedSeconds / 60) * 60;
+      }
 
       return {
         status: "stopped" as const,
