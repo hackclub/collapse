@@ -1,17 +1,23 @@
-import { sql, eq, and, lt, inArray } from "drizzle-orm";
+import { sql, eq, and, lt, isNotNull, inArray } from "drizzle-orm";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { db, schema } from "../db/index.js";
 import {
   boss,
   COMPILE_JOB,
   CHECK_TIMEOUTS_JOB,
   CLEANUP_UNCONFIRMED_JOB,
+  CLEANUP_SCREENSHOTS_JOB,
+  UPTIME_PING_JOB,
 } from "./queue.js";
+import { r2Client, R2_BUCKET } from "../config/r2.js";
 import { cleanupRateLimits } from "./timing.js";
 import {
   AUTO_PAUSE_AFTER_MINUTES,
   AUTO_STOP_AFTER_MINUTES,
   UNCONFIRMED_CLEANUP_AFTER_MINUTES,
   STUCK_COMPILING_TIMEOUT_MINUTES,
+  MAX_COMPILE_ATTEMPTS,
+  SCREENSHOT_RETENTION_DAYS,
 } from "@lookout/shared";
 
 /**
@@ -35,6 +41,23 @@ export async function registerTimeoutJobs() {
   await boss.work(CLEANUP_UNCONFIRMED_JOB, async () => {
     await cleanupUnconfirmed();
   });
+
+  // Cleanup screenshots for completed sessions daily at 3am UTC
+  await boss.createQueue(CLEANUP_SCREENSHOTS_JOB);
+  await boss.schedule(CLEANUP_SCREENSHOTS_JOB, "0 3 * * *");
+  await boss.work(CLEANUP_SCREENSHOTS_JOB, async () => {
+    await cleanupCompletedScreenshots();
+  });
+
+  // Uptime ping every minute
+  const uptimePushUrl = process.env.UPTIME_PUSH_URL;
+  if (uptimePushUrl) {
+    await boss.createQueue(UPTIME_PING_JOB);
+    await boss.schedule(UPTIME_PING_JOB, "* * * * *");
+    await boss.work(UPTIME_PING_JOB, async () => {
+      await fetch(uptimePushUrl).catch(() => {});
+    });
+  }
 }
 
 async function checkTimeouts() {
@@ -136,7 +159,7 @@ async function checkTimeouts() {
   // Detect stuck compiling sessions (>1 hour)
   const stuckThreshold = new Date(now.getTime() - STUCK_COMPILING_TIMEOUT_MINUTES * 60_000);
   const stuck = await db
-    .select({ id: schema.sessions.id })
+    .select({ id: schema.sessions.id, compileAttempts: schema.sessions.compileAttempts })
     .from(schema.sessions)
     .where(
       and(
@@ -146,11 +169,37 @@ async function checkTimeouts() {
     );
 
   for (const session of stuck) {
-    await db
+    if (session.compileAttempts >= MAX_COMPILE_ATTEMPTS) {
+      await db
+        .update(schema.sessions)
+        .set({ status: "failed", updatedAt: now })
+        .where(
+          and(
+            eq(schema.sessions.id, session.id),
+            eq(schema.sessions.status, "compiling"),
+          ),
+        );
+      continue;
+    }
+
+    const [reset] = await db
       .update(schema.sessions)
-      .set({ status: "stopped", updatedAt: now })
-      .where(eq(schema.sessions.id, session.id));
-    await boss.send(COMPILE_JOB, { sessionId: session.id });
+      .set({
+        status: "stopped",
+        compileAttempts: session.compileAttempts + 1,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.sessions.id, session.id),
+          eq(schema.sessions.status, "compiling"),
+        ),
+      )
+      .returning({ id: schema.sessions.id });
+
+    if (reset) {
+      await boss.send(COMPILE_JOB, { sessionId: session.id });
+    }
   }
 }
 
@@ -171,4 +220,49 @@ async function cleanupUnconfirmed() {
   // Note: orphaned R2 objects from unconfirmed uploads will naturally
   // be cleaned up as they were never confirmed. The presigned URLs
   // have expired so no new uploads can happen to those keys.
+}
+
+async function cleanupCompletedScreenshots() {
+  const threshold = new Date(
+    Date.now() - SCREENSHOT_RETENTION_DAYS * 24 * 60 * 60_000,
+  );
+
+  // Find completed sessions with a video that stopped more than SCREENSHOT_RETENTION_DAYS ago
+  // and still have screenshot records to clean up
+  const sessions = await db
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(
+      and(
+        eq(schema.sessions.status, "complete"),
+        isNotNull(schema.sessions.videoR2Key),
+        lt(schema.sessions.stoppedAt, threshold),
+      ),
+    );
+
+  for (const session of sessions) {
+    const screenshots = await db
+      .select({ id: schema.screenshots.id, r2Key: schema.screenshots.r2Key })
+      .from(schema.screenshots)
+      .where(eq(schema.screenshots.sessionId, session.id));
+
+    if (screenshots.length === 0) continue;
+
+    // Delete R2 objects — DeleteObject is idempotent (204 whether object exists or not)
+    for (const ss of screenshots) {
+      try {
+        await r2Client.send(
+          new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: ss.r2Key }),
+        );
+      } catch {
+        // Non-fatal: log and continue, will be retried next run
+        console.warn(`Failed to delete R2 object ${ss.r2Key}, skipping`);
+      }
+    }
+
+    // Delete DB records
+    await db
+      .delete(schema.screenshots)
+      .where(eq(schema.screenshots.sessionId, session.id));
+  }
 }

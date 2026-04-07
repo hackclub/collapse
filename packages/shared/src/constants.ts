@@ -35,19 +35,25 @@ export const MAX_CLOCK_SKEW_MS = 5_000;
 
 /** Auto-pause a session after this many minutes without a
  *  screenshot upload. The session moves to "paused" status.
- *  Default: 5 (minutes) */
-export const AUTO_PAUSE_AFTER_MINUTES = 5;
+ *  Default: 10 minutes */
+export const AUTO_PAUSE_AFTER_MINUTES = 10;
 
 /** Auto-stop (and trigger compilation) after this many minutes
  *  without a screenshot upload. Applies to both "active" and
  *  "paused" sessions.
- *  Default: 30 (minutes) */
-export const AUTO_STOP_AFTER_MINUTES = 30;
+ *  Default: 24 hours */
+export const AUTO_STOP_AFTER_MINUTES = 1440;
 
 /** Sessions stuck in "compiling" for longer than this are
  *  assumed crashed and reset to "stopped" for re-enqueue.
  *  Default: 60 (minutes) */
 export const STUCK_COMPILING_TIMEOUT_MINUTES = 60;
+
+/** Max times the stuck-compiling timeout will re-enqueue a
+ *  compilation before giving up and marking the session failed.
+ *  Prevents infinite recompile loops from deeper corruption.
+ *  Default: 3 */
+export const MAX_COMPILE_ATTEMPTS = 3;
 
 // ──────────────────────────────────────────────────────────
 // Rate limiting & abuse prevention
@@ -90,6 +96,12 @@ export const PRESIGNED_URL_EXPIRY_SECONDS = 120;
  *  Their presigned URLs have long expired by this point.
  *  Default: 10 (minutes) */
 export const UNCONFIRMED_CLEANUP_AFTER_MINUTES = 10;
+
+/** Delete screenshot R2 objects and DB records for successfully
+ *  compiled sessions (status=complete with a video) after this
+ *  many days. Only applies to sessions that have a videoR2Key set.
+ *  Default: 7 (days) */
+export const SCREENSHOT_RETENTION_DAYS = 7;
 
 // ──────────────────────────────────────────────────────────
 // Screenshot capture settings

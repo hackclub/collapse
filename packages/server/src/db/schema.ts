@@ -54,6 +54,7 @@ export const sessions = pgTable(
     videoWebmR2Key: text("video_webm_r2_key"),
     thumbnailUrl: text("thumbnail_url"),
     thumbnailR2Key: text("thumbnail_r2_key"),
+    compileAttempts: integer("compile_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
