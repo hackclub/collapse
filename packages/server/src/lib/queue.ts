@@ -17,7 +17,6 @@ export const COMPILE_JOB = "compile-timelapse";
 export const CHECK_TIMEOUTS_JOB = "check-timeouts";
 export const CLEANUP_UNCONFIRMED_JOB = "cleanup-unconfirmed";
 export const CLEANUP_SCREENSHOTS_JOB = "cleanup-screenshots";
-export const UPTIME_PING_JOB = "uptime-ping";
 
 export interface CompileJobData {
   sessionId: string;

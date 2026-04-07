@@ -67,6 +67,17 @@ await boss.work<{ sessionId: string }>(
   },
 );
 
+// Uptime ping — runs as a scheduled pgBoss job so it also validates the job system is healthy
+const UPTIME_PING_JOB = "uptime-ping";
+const uptimePushUrl = process.env.UPTIME_PUSH_URL;
+if (uptimePushUrl) {
+  await boss.createQueue(UPTIME_PING_JOB);
+  await boss.schedule(UPTIME_PING_JOB, "* * * * *");
+  await boss.work(UPTIME_PING_JOB, async () => {
+    await fetch(uptimePushUrl);
+  });
+}
+
 // Graceful shutdown
 const shutdown = async () => {
   console.log("Worker shutting down...");

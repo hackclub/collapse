@@ -7,7 +7,6 @@ import {
   CHECK_TIMEOUTS_JOB,
   CLEANUP_UNCONFIRMED_JOB,
   CLEANUP_SCREENSHOTS_JOB,
-  UPTIME_PING_JOB,
 } from "./queue.js";
 import { r2Client, R2_BUCKET } from "../config/r2.js";
 import { cleanupRateLimits } from "./timing.js";
@@ -48,16 +47,6 @@ export async function registerTimeoutJobs() {
   await boss.work(CLEANUP_SCREENSHOTS_JOB, async () => {
     await cleanupCompletedScreenshots();
   });
-
-  // Uptime ping every minute
-  const uptimePushUrl = process.env.UPTIME_PUSH_URL;
-  if (uptimePushUrl) {
-    await boss.createQueue(UPTIME_PING_JOB);
-    await boss.schedule(UPTIME_PING_JOB, "* * * * *");
-    await boss.work(UPTIME_PING_JOB, async () => {
-      await fetch(uptimePushUrl).catch(() => {});
-    });
-  }
 }
 
 async function checkTimeouts() {
