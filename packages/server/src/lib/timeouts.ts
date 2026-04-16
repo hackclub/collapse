@@ -1,6 +1,7 @@
 import { sql, eq, and, lt, isNotNull, inArray } from "drizzle-orm";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { db, schema } from "../db/index.js";
+import { r2Client, R2_BUCKET } from "../config/r2.js";
 import {
   boss,
   COMPILE_JOB,
@@ -8,7 +9,6 @@ import {
   CLEANUP_UNCONFIRMED_JOB,
   CLEANUP_SCREENSHOTS_JOB,
 } from "./queue.js";
-import { r2Client, R2_BUCKET } from "../config/r2.js";
 import { cleanupRateLimits } from "./timing.js";
 import {
   AUTO_PAUSE_AFTER_MINUTES,
@@ -114,12 +114,27 @@ async function checkTimeouts() {
       );
     }
 
+    // Compute tracked seconds before stopping (screenshots may be cleaned up later)
+    const [{ buckets }] = await db
+      .select({
+        buckets: sql<number>`count(distinct ${schema.screenshots.minuteBucket})`,
+      })
+      .from(schema.screenshots)
+      .where(
+        and(
+          eq(schema.screenshots.sessionId, session.id),
+          eq(schema.screenshots.confirmed, true),
+        ),
+      );
+    const trackedSeconds = Math.max(0, (Number(buckets) - 1) * 60);
+
     await db
       .update(schema.sessions)
       .set({
         status: "stopped",
         stoppedAt: now,
         totalActiveSeconds,
+        trackedSeconds,
         updatedAt: now,
       })
       .where(eq(schema.sessions.id, session.id));
@@ -197,18 +212,39 @@ async function cleanupUnconfirmed() {
     Date.now() - UNCONFIRMED_CLEANUP_AFTER_MINUTES * 60_000,
   );
 
-  // Delete unconfirmed screenshot records older than threshold
-  await db
-    .delete(schema.screenshots)
+  // Find unconfirmed screenshot records older than threshold
+  const stale = await db
+    .select({ id: schema.screenshots.id, r2Key: schema.screenshots.r2Key })
+    .from(schema.screenshots)
     .where(
       and(
         eq(schema.screenshots.confirmed, false),
         lt(schema.screenshots.createdAt, threshold),
       ),
     );
-  // Note: orphaned R2 objects from unconfirmed uploads will naturally
-  // be cleaned up as they were never confirmed. The presigned URLs
-  // have expired so no new uploads can happen to those keys.
+
+  // Delete orphaned R2 objects to prevent storage abuse
+  for (const ss of stale) {
+    try {
+      await r2Client.send(
+        new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: ss.r2Key }),
+      );
+    } catch {
+      // Non-fatal: object may not exist if upload never completed
+    }
+  }
+
+  // Delete the database records
+  if (stale.length > 0) {
+    await db
+      .delete(schema.screenshots)
+      .where(
+        and(
+          eq(schema.screenshots.confirmed, false),
+          lt(schema.screenshots.createdAt, threshold),
+        ),
+      );
+  }
 }
 
 async function cleanupCompletedScreenshots() {

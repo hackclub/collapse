@@ -89,6 +89,7 @@ export async function internalRoutes(app: FastifyInstance) {
       // Exclude internal R2 storage keys and build proper media URLs
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const { videoR2Key, thumbnailR2Key, videoWebmR2Key, ...sessionData } = session;
+      const liveTrackedSeconds = Math.max(0, (Number(count) - 1) * 60);
       return {
         session: {
           ...sessionData,
@@ -102,7 +103,7 @@ export async function internalRoutes(app: FastifyInstance) {
             ? `${baseUrl}/api/media/${session.id}/video.webm`
             : null,
         },
-        trackedSeconds: Math.max(0, (Number(count) - 1) * 60),
+        trackedSeconds: session.trackedSeconds ?? liveTrackedSeconds,
         screenshotCount: Number(count),
       };
     },
@@ -178,12 +179,27 @@ export async function internalRoutes(app: FastifyInstance) {
         );
       }
 
+      // Compute tracked seconds before stopping
+      const [{ buckets }] = await db
+        .select({
+          buckets: sql<number>`count(distinct ${schema.screenshots.minuteBucket})`,
+        })
+        .from(schema.screenshots)
+        .where(
+          and(
+            eq(schema.screenshots.sessionId, sessionId),
+            eq(schema.screenshots.confirmed, true),
+          ),
+        );
+      const trackedSeconds = Math.max(0, (Number(buckets) - 1) * 60);
+
       const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "stopped",
           stoppedAt: new Date(),
           totalActiveSeconds,
+          trackedSeconds,
           updatedAt: new Date(),
         })
         .where(and(

@@ -48,6 +48,7 @@ export const sessions = pgTable(
     lastScreenshotAt: timestamp("last_screenshot_at", { withTimezone: true }),
     resumedAt: timestamp("resumed_at", { withTimezone: true }),
     totalActiveSeconds: integer("total_active_seconds").notNull().default(0),
+    trackedSeconds: integer("tracked_seconds"),
     videoUrl: text("video_url"),
     videoR2Key: text("video_r2_key"),
     videoWebmUrl: text("video_webm_url"),

@@ -22,9 +22,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = Fastify({ logger: true });
 
+const IS_DEV = process.env.NODE_ENV !== "production";
+
 await app.register(cors, {
   origin: (origin, cb) => {
-    // Allow: no origin (server-to-server), *.hackclub.com, localhost dev, tauri app
+    // Allow: no origin (server-to-server), *.hackclub.com, tauri app
     // Tauri uses tauri:// on macOS/Linux but http://tauri.localhost on Windows
     if (
       !origin ||
@@ -36,10 +38,13 @@ await app.register(cors, {
     }
     try {
       const hostname = new URL(origin).hostname;
-      if (
+      const isAllowed =
         /\.hackclub\.com$/.test(hostname) ||
-        /^https?:\/\/localhost(:\d+)?$/.test(origin)
-      ) {
+        hostname === "hackclub.com" ||
+        // Only allow localhost origins in development
+        (IS_DEV && /^https?:\/\/localhost(:\d+)?$/.test(origin));
+
+      if (isAllowed) {
         cb(null, true);
       } else {
         app.log.warn(`CORS rejected origin: ${origin}`);

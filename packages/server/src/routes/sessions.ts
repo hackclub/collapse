@@ -100,8 +100,10 @@ export async function sessionRoutes(app: FastifyInstance) {
       const session = await findSession(request.params.token);
       if (!session) return reply.code(404).send({ error: "Session not found" });
 
-      const trackedSeconds = await getTrackedSeconds(session.id);
+      const liveTrackedSeconds = await getTrackedSeconds(session.id);
       const screenshotCount = await getScreenshotCount(session.id);
+      // Prefer stored value (survives screenshot cleanup), fall back to live count
+      const trackedSeconds = session.trackedSeconds ?? liveTrackedSeconds;
 
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       return {
@@ -249,6 +251,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       // Generate presigned PUT URL
       // Note: Don't set ContentLength — it signs an exact size and rejects
       // anything different. Size is validated at confirmation via HeadObject.
+      // Orphaned uploads are cleaned up by the unconfirmed cleanup job.
       const command = new PutObjectCommand({
         Bucket: R2_BUCKET,
         Key: r2Key,
@@ -566,12 +569,16 @@ export async function sessionRoutes(app: FastifyInstance) {
 
       const now = new Date();
 
+      // Compute tracked seconds before stopping (screenshots may be cleaned up later)
+      const trackedSeconds = await getTrackedSeconds(session.id);
+
       const [updated] = await db
         .update(schema.sessions)
         .set({
           status: "stopped",
           stoppedAt: now,
           totalActiveSeconds,
+          trackedSeconds,
           updatedAt: now,
         })
         .where(and(
@@ -595,8 +602,6 @@ export async function sessionRoutes(app: FastifyInstance) {
           .set({ status: "failed", updatedAt: now })
           .where(eq(schema.sessions.id, session.id));
       }
-
-      const trackedSeconds = await getTrackedSeconds(session.id);
 
       return {
         status: "stopped" as const,
@@ -626,7 +631,8 @@ export async function sessionRoutes(app: FastifyInstance) {
       const session = await findSession(request.params.token);
       if (!session) return reply.code(404).send({ error: "Session not found" });
 
-      const trackedSeconds = await getTrackedSeconds(session.id);
+      const liveTrackedSeconds = await getTrackedSeconds(session.id);
+      const trackedSeconds = session.trackedSeconds ?? liveTrackedSeconds;
 
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       return {
@@ -805,11 +811,14 @@ export async function sessionRoutes(app: FastifyInstance) {
           const thumbnailUrl = s.thumbnailR2Key
             ? `${baseUrl}/api/media/${s.id}/thumbnail.jpg`
             : null;
+          // Prefer stored trackedSeconds (survives screenshot cleanup),
+          // fall back to live screenshot count for active sessions
+          const trackedSeconds = s.trackedSeconds ?? c.trackedSeconds;
           return {
             token: s.token,
             name: s.name,
             status: s.status,
-            trackedSeconds: c.trackedSeconds,
+            trackedSeconds,
             screenshotCount: c.screenshotCount,
             startedAt: s.startedAt?.toISOString() ?? null,
             createdAt: s.createdAt.toISOString(),
