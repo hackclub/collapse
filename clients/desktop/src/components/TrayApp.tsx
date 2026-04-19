@@ -41,6 +41,7 @@ export function TrayApp() {
   const [liveSeconds, setLiveSeconds] = useState(0);
 
   const [isWindows, setIsWindows] = useState(false);
+  const [cornerRadius, setCornerRadius] = useState(10);
 
   useEffect(() => {
     // Force global transparency for the tray window to ensure native glass shows through
@@ -58,6 +59,11 @@ export function TrayApp() {
     const windows = ua.includes('windows') || ua.includes('linux');
     setIsWindows(windows);
 
+    const macMatch = navigator.userAgent.match(/Mac OS X (\d+)[._](\d+)/);
+    const macMajor = macMatch ? parseInt(macMatch[1], 10) : 0;
+    const isTahoe = macMajor >= 26;
+    setCornerRadius(isTahoe ? 16 : 10);
+
     // Apply native glass effects
     async function setupGlass() {
       try {
@@ -65,7 +71,7 @@ export function TrayApp() {
         console.log("Liquid glass supported:", supported);
         
         await setLiquidGlassEffect({
-          cornerRadius: 16,
+          cornerRadius: isTahoe ? 16 : 10,
           tintColor: "#00000000",
           variant: GlassMaterialVariant.Sidebar, 
         });
@@ -176,11 +182,11 @@ export function TrayApp() {
         width: "100%", height: "100%", boxSizing: "border-box",
         fontFamily: "system-ui, -apple-system, sans-serif",
         backgroundColor: isWindows ? "rgba(26, 26, 26, 0.93)" : "transparent",
-        borderRadius: isWindows ? 0 : 16,
+        borderRadius: isWindows ? 0 : cornerRadius,
         border: "none",
         overflow: "hidden", // Ensure content doesn't bleed past the rounded corners
         /* Explicitly add a border-radius here that matches cornerRadius */
-        WebkitBorderRadius: isWindows ? 0 : 16,
+        WebkitBorderRadius: isWindows ? 0 : cornerRadius,
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>

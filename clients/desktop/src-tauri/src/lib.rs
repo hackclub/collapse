@@ -681,11 +681,16 @@ fn enable_vibrancy(window: tauri::Window) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        use objc2_foundation::NSProcessInfo;
+
+        let version = unsafe { NSProcessInfo::processInfo().operatingSystemVersion() };
+        let radius = if version.majorVersion >= 26 { 16.0 } else { 10.0 };
+
         apply_vibrancy(
             &window,
             NSVisualEffectMaterial::Sidebar,
             Some(NSVisualEffectState::Active),
-            Some(16.0),
+            Some(radius),
         )
         .map_err(|e| e.to_string())?;
     }
