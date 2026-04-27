@@ -380,7 +380,7 @@ jobs:
           # Create draft release
           gh release create "$TAG" \
             --title "Lookout v${VERSION}" \
-            --notes "See the assets to download and install." \
+            --notes "See the assets to download and install.\n(You may need to click \"Show all\" after expanding the dropdown to see one compatible with your system)" \
             --draft
 
           # Upload all renamed artifacts
