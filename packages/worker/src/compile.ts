@@ -117,8 +117,6 @@ async function uploadAndVerify(
 export async function compileTimelapse(sessionId: string): Promise<{
   videoUrl: string;
   videoR2Key: string;
-  videoWebmUrl: string;
-  videoWebmR2Key: string;
   thumbnailUrl: string;
   thumbnailR2Key: string;
 }> {
@@ -184,8 +182,6 @@ export async function compileTimelapse(sessionId: string): Promise<{
       return {
         videoUrl: "",
         videoR2Key: "",
-        videoWebmUrl: "",
-        videoWebmR2Key: "",
         thumbnailUrl: "",
         thumbnailR2Key: "",
       };
@@ -257,77 +253,39 @@ export async function compileTimelapse(sessionId: string): Promise<{
     }
     const actualFrames = seq - 1;
 
-    // Step 3: Run ffmpeg — MP4 and WebM in parallel
+    // Step 3: Run ffmpeg — MP4 only (H.264)
     const mp4Path = path.join(tmpDir, "timelapse.mp4");
-    const webmPath = path.join(tmpDir, "timelapse.webm");
     const inputPattern = path.join(tmpDir, "%05d.jpg");
 
-    const mp4Abort = new AbortController();
-    const webmAbort = new AbortController();
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-framerate",
+        "1",
+        "-i",
+        inputPattern,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "28",
+        "-r",
+        "30",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-vf",
+        SCALE_FILTER,
+        "-y",
+        mp4Path,
+      ],
+      { timeout: 600_000 },
+    );
 
-    try {
-      await Promise.all([
-        execFileAsync(
-          "ffmpeg",
-          [
-            "-framerate",
-            "1",
-            "-i",
-            inputPattern,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "28",
-            "-r",
-            "30",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-vf",
-            SCALE_FILTER,
-            "-y",
-            mp4Path,
-          ],
-          { timeout: 600_000, signal: mp4Abort.signal },
-        ),
-        execFileAsync(
-          "ffmpeg",
-          [
-            "-framerate",
-            "1",
-            "-i",
-            inputPattern,
-            "-c:v",
-            "libvpx",
-            "-crf",
-            "10",
-            "-b:v",
-            "1M",
-            "-r",
-            "30",
-            "-pix_fmt",
-            "yuv420p",
-            "-vf",
-            SCALE_FILTER,
-            "-y",
-            webmPath,
-          ],
-          { timeout: 600_000, signal: webmAbort.signal },
-        ),
-      ]);
-    } catch (err) {
-      // Kill the surviving FFmpeg process to avoid wasting CPU
-      mp4Abort.abort();
-      webmAbort.abort();
-      throw err;
-    }
-
-    // Step 4: Verify both outputs
+    // Step 4: Verify output
     const mp4Size = await verifyVideo(mp4Path, actualFrames, 30, "MP4");
-    const webmSize = await verifyVideo(webmPath, actualFrames, 30, "WebM");
 
     // Step 4.5: Extract thumbnail from first frame
     const thumbnailPath = path.join(tmpDir, "thumbnail.jpg");
@@ -364,16 +322,7 @@ export async function compileTimelapse(sessionId: string): Promise<{
     const videoR2Key = `timelapses/${sessionId}/timelapse.mp4`;
     await uploadAndVerify(mp4Path, videoR2Key, "video/mp4", mp4Size, "MP4");
 
-    const videoWebmR2Key = `timelapses/${sessionId}/timelapse.webm`;
-    await uploadAndVerify(
-      webmPath,
-      videoWebmR2Key,
-      "video/webm",
-      webmSize,
-      "WebM",
-    );
-
-    // Step 6: Mark complete — only after BOTH formats are uploaded and verified
+    // Step 6: Mark complete
     const thumbnailUrl = R2_PUBLIC_DOMAIN
       ? `https://${R2_PUBLIC_DOMAIN}/${thumbnailR2Key}`
       : thumbnailR2Key;
@@ -382,18 +331,12 @@ export async function compileTimelapse(sessionId: string): Promise<{
       ? `https://${R2_PUBLIC_DOMAIN}/${videoR2Key}`
       : videoR2Key;
 
-    const videoWebmUrl = R2_PUBLIC_DOMAIN
-      ? `https://${R2_PUBLIC_DOMAIN}/${videoWebmR2Key}`
-      : videoWebmR2Key;
-
     await db
       .update(schema.sessions)
       .set({
         status: "complete",
         videoUrl,
         videoR2Key,
-        videoWebmUrl,
-        videoWebmR2Key,
         thumbnailUrl,
         thumbnailR2Key,
         updatedAt: new Date(),
@@ -435,8 +378,6 @@ export async function compileTimelapse(sessionId: string): Promise<{
     return {
       videoUrl,
       videoR2Key,
-      videoWebmUrl,
-      videoWebmR2Key,
       thumbnailUrl,
       thumbnailR2Key,
     };

@@ -23,7 +23,7 @@ export interface LookoutClient {
   stop(): Promise<StopResponse>;
   rename(name: string): Promise<RenameSessionResponse>;
   getStatus(): Promise<StatusResponse>;
-  getVideo(options?: { format?: "mp4" | "webm" }): Promise<VideoResponse>;
+  getVideo(): Promise<VideoResponse>;
 }
 
 export class HttpError extends Error {
@@ -161,9 +161,8 @@ export function createLookoutClient(options: CreateClientOptions): LookoutClient
       return fetchJson<StatusResponse>(await sessionUrl("/status"));
     },
 
-    async getVideo(options?: { format?: "mp4" | "webm" }) {
-      const q = options?.format ? `?format=${options.format}` : "";
-      return fetchJson<VideoResponse>(await sessionUrl(`/video${q}`));
+    async getVideo() {
+      return fetchJson<VideoResponse>(await sessionUrl("/video"));
     },
   };
 }

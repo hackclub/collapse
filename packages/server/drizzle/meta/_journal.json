@@ -43,6 +43,13 @@
       "when": 1776508800000,
       "tag": "0005_add_tracked_seconds",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777302721429,
+      "tag": "0006_living_namora",
+      "breakpoints": true
     }
   ]
 }

@@ -15,17 +15,8 @@ export function Result({ status, trackedSeconds }: ResultProps) {
 
   useEffect(() => {
     if (status === "complete") {
-      let format: "mp4" | "webm" = "mp4";
-      if (
-        typeof navigator !== "undefined" &&
-        navigator.userAgent.toLowerCase().includes("linux") &&
-        !navigator.userAgent.toLowerCase().includes("android")
-      ) {
-        format = "webm";
-      }
-
       api
-        .getVideo({ format })
+        .getVideo()
         .then((data) => {
           if (data.videoUrl && !data.videoUrl.startsWith("https://")) {
             throw new Error("Invalid video URL: must be HTTPS.");

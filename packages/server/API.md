@@ -99,7 +99,6 @@ Returns the current state of a session.
   "createdAt": "2024-01-01T11:50:00.000Z",
   "thumbnailUrl": "https://...",
   "videoUrl": "https://...",
-  "videoWebmUrl": "https://...",
   "metadata": {}
 }
 ```
@@ -300,7 +299,6 @@ Lightweight endpoint for polling compilation progress.
 {
   "status": "compiling",
   "videoUrl": null,
-  "videoWebmUrl": null,
   "trackedSeconds": 123
 }
 ```
@@ -310,7 +308,6 @@ When complete:
 {
   "status": "complete",
   "videoUrl": "https://...",
-  "videoWebmUrl": "https://...",
   "trackedSeconds": 123
 }
 ```
@@ -321,20 +318,14 @@ When complete:
 
 ```
 GET /api/sessions/:token/video
-GET /api/sessions/:token/video?format=webm
 ```
 
-Returns a presigned URL to download the compiled timelapse video. Supports MP4 (default) and WebM formats.
+Returns a presigned URL to download the compiled timelapse video (MP4 / H.264).
 
 **Path Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `token` | string | 64-char hex session token |
-
-**Query Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `format` | string | `mp4` | Video format: `mp4` or `webm` |
 
 **Response `200 OK`:**
 ```json
@@ -344,13 +335,13 @@ Returns a presigned URL to download the compiled timelapse video. Supports MP4 (
 ```
 
 **Errors:**
-- `404` — Session not found, video not yet available, or requested format not available
+- `404` — Session not found or video not yet available
 - `429` — Rate limit exceeded
 
 **Notes:**
 - Only available when session status is `complete`
 - Presigned URL expires after 1 hour
-- Both MP4 (H.264) and WebM (VP8) are generated during compilation
+- Output is H.264 MP4. WebKitGTK-based Linux browsers may need `gst-plugins-bad`/OpenH264 installed for playback.
 
 ---
 
@@ -416,7 +407,6 @@ Fetch multiple sessions at once (for gallery views). Results sorted by creation 
       "totalActiveSeconds": 300,
       "thumbnailUrl": "https://...",
       "videoUrl": "https://...",
-      "videoWebmUrl": "https://...",
       "metadata": {}
     }
   ]
@@ -493,7 +483,6 @@ Returns full session details including internal fields.
     "resumedAt": "...",
     "totalActiveSeconds": 123,
     "videoUrl": null,
-    "videoWebmUrl": null,
     "thumbnailUrl": null,
     "createdAt": "...",
     "updatedAt": "..."
@@ -588,7 +577,7 @@ The server uses **PG Boss** for background job processing.
 
 | Job | Schedule | Description |
 |-----|----------|-------------|
-| `compile-timelapse` | On demand | Compiles screenshots into timelapse videos (MP4 + WebM in parallel). Retries 3x with backoff. |
+| `compile-timelapse` | On demand | Compiles screenshots into an H.264 MP4 timelapse. Retries 3x with backoff. |
 | `check-timeouts` | Every 1 min | Auto-pauses sessions idle >5 min, auto-stops sessions idle >30 min, resets stuck compilations >60 min. |
 | `cleanup-unconfirmed` | Every 5 min | Deletes unconfirmed screenshot records older than 10 minutes. |
 

@@ -23,3 +23,43 @@
 .lookout-video-player * {
   --media-border-radius: 8px;
 }
+
+.lookout-video-player__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(11, 13, 18, 0.92);
+  color: #f4f5f7;
+  border-radius: 8px;
+  z-index: 2;
+}
+
+.lookout-video-player__error h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lookout-video-player__error p {
+  margin: 0;
+  max-width: 480px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #c8ccd4;
+}
+
+.lookout-video-player__error-note {
+  font-size: 13px;
+  color: #9aa0aa;
+}
+
+.lookout-video-player__error a {
+  color: #6ea8ff;
+  text-decoration: underline;
+}

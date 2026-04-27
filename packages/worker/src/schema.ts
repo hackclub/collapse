@@ -41,8 +41,6 @@ export const sessions = pgTable(
     trackedSeconds: integer("tracked_seconds"),
     videoUrl: text("video_url"),
     videoR2Key: text("video_r2_key"),
-    videoWebmUrl: text("video_webm_url"),
-    videoWebmR2Key: text("video_webm_r2_key"),
     thumbnailUrl: text("thumbnail_url"),
     thumbnailR2Key: text("thumbnail_r2_key"),
     compileAttempts: integer("compile_attempts").notNull().default(0),

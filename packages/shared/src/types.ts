@@ -14,8 +14,6 @@ export interface Session {
   totalActiveSeconds: number;
   videoUrl: string | null;
   videoR2Key: string | null;
-  videoWebmUrl: string | null;
-  videoWebmR2Key: string | null;
   thumbnailUrl: string | null;
   thumbnailR2Key: string | null;
   createdAt: string;
@@ -59,7 +57,9 @@ export interface SessionResponse {
   createdAt: string;
   thumbnailUrl: string | null;
   videoUrl: string | null;
-  videoWebmUrl: string | null;
+  /** @deprecated WebM is no longer produced. Populated only for legacy clients —
+   * points at a static "please update" message video. */
+  videoWebmUrl?: string | null;
   metadata: Record<string, unknown>;
 }
 
@@ -104,13 +104,14 @@ export interface StatusResponse {
   status: SessionStatus;
   progress?: number;
   videoUrl?: string;
+  /** @deprecated WebM is no longer produced. Populated only for legacy clients —
+   * points at a static "please update" message video. */
   videoWebmUrl?: string;
   trackedSeconds: number;
 }
 
 export interface VideoResponse {
   videoUrl: string;
-  videoWebmUrl?: string;
 }
 
 export interface ThumbnailResponse {
@@ -128,7 +129,9 @@ export interface SessionSummary {
   totalActiveSeconds: number;
   thumbnailUrl: string | null;
   videoUrl: string | null;
-  videoWebmUrl: string | null;
+  /** @deprecated WebM is no longer produced. Populated only for legacy clients —
+   * points at a static "please update" message video. */
+  videoWebmUrl?: string | null;
   metadata: Record<string, unknown>;
 }
 

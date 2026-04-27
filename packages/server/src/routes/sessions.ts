@@ -120,9 +120,9 @@ export async function sessionRoutes(app: FastifyInstance) {
         videoUrl: session.videoR2Key
           ? `${baseUrl}/api/media/${session.id}/video.mp4`
           : null,
-        videoWebmUrl: session.videoWebmR2Key
-          ? `${baseUrl}/api/media/${session.id}/video.webm`
-          : null,
+        // Backwards compat: legacy clients keyed off this. Points at a static
+        // "please update" video when the session is otherwise playable.
+        videoWebmUrl: session.videoR2Key ? `${baseUrl}/please-update.webm` : null,
         metadata: session.metadata ?? {},
       };
     },
@@ -640,15 +640,19 @@ export async function sessionRoutes(app: FastifyInstance) {
         videoUrl: session.videoR2Key
           ? `${baseUrl}/api/media/${session.id}/video.mp4`
           : undefined,
-        videoWebmUrl: session.videoWebmR2Key
-          ? `${baseUrl}/api/media/${session.id}/video.webm`
+        // Backwards compat: legacy clients used this to know completion + format.
+        videoWebmUrl: session.videoR2Key
+          ? `${baseUrl}/please-update.webm`
           : undefined,
         trackedSeconds,
       };
     },
   );
 
-  // Get video presigned URL (supports ?format=mp4|webm, default mp4)
+  // Get video presigned URL.
+  // Legacy clients still pass ?format=webm — we no longer encode WebM, but
+  // return a static "please update" WebM URL so the old player shows the
+  // upgrade prompt instead of breaking.
   app.get<{ Params: { token: string }; Querystring: { format?: string } }>(
     "/api/sessions/:token/video",
     {
@@ -680,18 +684,11 @@ export async function sessionRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "Video not available" });
       }
 
-      const format = request.query.format === "webm" ? "webm" : "mp4";
-      const r2Key = format === "webm" ? session.videoWebmR2Key : session.videoR2Key;
-
-      if (!r2Key) {
-        return reply.code(404).send({ error: `${format.toUpperCase()} video not available` });
-      }
-
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const ext = format === "webm" ? "video.webm" : "video.mp4";
-      const videoUrl = `${baseUrl}/api/media/${session.id}/${ext}`;
-
-      return { videoUrl };
+      if (request.query.format === "webm") {
+        return { videoUrl: `${baseUrl}/please-update.webm` };
+      }
+      return { videoUrl: `${baseUrl}/api/media/${session.id}/video.mp4` };
     },
   );
 
@@ -827,9 +824,8 @@ export async function sessionRoutes(app: FastifyInstance) {
             videoUrl: s.videoR2Key
               ? `${baseUrl}/api/media/${s.id}/video.mp4`
               : null,
-            videoWebmUrl: s.videoWebmR2Key
-              ? `${baseUrl}/api/media/${s.id}/video.webm`
-              : null,
+            // Backwards compat: see notes on /api/sessions/:token.
+            videoWebmUrl: s.videoR2Key ? `${baseUrl}/please-update.webm` : null,
             metadata: s.metadata ?? {},
           };
         });
@@ -904,6 +900,9 @@ export async function sessionRoutes(app: FastifyInstance) {
     },
   );
 
+  // Legacy: pre-MP4-only clients still hit this. Always redirect to the
+  // static "please update" WebM so they show the upgrade prompt instead of
+  // a broken player.
   app.get<{ Params: { sessionId: string } }>(
     "/api/media/:sessionId/video.webm",
     { schema: { params: sessionIdParamSchema } },
@@ -913,22 +912,9 @@ export async function sessionRoutes(app: FastifyInstance) {
         reply.header("Retry-After", String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)));
         return reply.code(429).send({ error: "Rate limit exceeded" });
       }
-
-      const session = await db.query.sessions.findFirst({
-        where: eq(schema.sessions.id, request.params.sessionId),
-      });
-      if (!session || session.status !== "complete" || !session.videoWebmR2Key) {
-        return reply.code(404).send({ error: "WebM video not available" });
-      }
-
-      const { GetObjectCommand } = await import("@aws-sdk/client-s3");
-      const url = await getSignedUrl(r2Client, new GetObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: session.videoWebmR2Key,
-      }), { expiresIn: 3600 });
-
-      reply.header("Cache-Control", "public, max-age=1800");
-      return reply.redirect(url);
+      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      reply.header("Cache-Control", "public, max-age=86400");
+      return reply.redirect(`${baseUrl}/please-update.webm`);
     },
   );
 }
